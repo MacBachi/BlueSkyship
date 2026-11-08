@@ -59,6 +59,7 @@ enum DeckConfirmation: Identifiable, Hashable {
     case mute(Profile, accountDID: String?)
     case block(Profile, accountDID: String?)
     case deleteDeck(DeckPage)
+    case openLink(URL, shownAs: String)
 
     var id: Self { self }
 
@@ -68,6 +69,7 @@ enum DeckConfirmation: Identifiable, Hashable {
         case .mute(let person, _): return tr("\(person.bestName) stummschalten?", "Mute \(person.bestName)?")
         case .block(let person, _): return tr("\(person.bestName) blockieren?", "Block \(person.bestName)?")
         case .deleteDeck(let page): return tr("Deck „\(page.name)“ löschen?", "Delete deck “\(page.name)”?")
+        case .openLink: return tr("Dieser Link führt woanders hin", "This link goes somewhere else")
         }
     }
 
@@ -79,6 +81,12 @@ enum DeckConfirmation: Identifiable, Hashable {
             return tr("Du siehst die Posts dieser Person nicht mehr. Sie erfährt nichts davon. Rückgängig machst du es im Profil.", "You no longer see this person's posts. They are not told. Undo it on their profile.")
         case .block:
             return tr("Ihr könnt einander nicht mehr sehen oder miteinander interagieren. Blockieren ist öffentlich einsehbar. Rückgängig machst du es im Profil.", "You can no longer see or interact with each other. Blocks are publicly visible. Undo it on their profile.")
+        case .openLink(let url, let shown):
+            let target = String(url.absoluteString.prefix(200))
+            return tr(
+                "Im Post steht: \(String(shown.prefix(100)))\nDas Ziel ist: \(target)\n\nÖffne ihn nur, wenn du dem Ziel vertraust, und gib dort keine Passwörter ein.",
+                "The post says: \(String(shown.prefix(100)))\nIt goes to: \(target)\n\nOnly open it if you trust the destination, and do not enter passwords there."
+            )
         case .deleteDeck:
             return tr("Seine Spalten werden entfernt. Deine Favoriten und dein Bluesky-Konto bleiben unberührt.", "Its columns are removed. Your favorites and Bluesky account are not affected.")
         }
@@ -87,6 +95,7 @@ enum DeckConfirmation: Identifiable, Hashable {
     var actionLabel: String {
         switch self {
         case .deletePost, .deleteDeck: return tr("Löschen", "Delete")
+        case .openLink: return tr("Trotzdem öffnen", "Open Anyway")
         case .mute: return tr("Stummschalten", "Mute")
         case .block: return tr("Blockieren", "Block")
         }

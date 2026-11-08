@@ -16,10 +16,64 @@ final class ImageCache {
 
     func load(_ url: URL) async -> NSImage? {
         if let image = cached(url) { return image }
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
+        guard let data = await LimitedDownload.data(from: url),
               let image = NSImage(data: data) else { return nil }
         cache.setObject(image, forKey: url as NSURL, cost: data.count)
         return image
+    }
+}
+
+/// Fetches a picture without letting a huge or unexpected answer fill the memory.
+final class LimitedDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    static let limit = 30 * 1024 * 1024
+
+    private let maximum: Int
+    private let finish: @Sendable (Data?) -> Void
+    private var received = Data()
+    private var isDone = false
+
+    private init(maximum: Int, finish: @escaping @Sendable (Data?) -> Void) {
+        self.maximum = maximum
+        self.finish = finish
+    }
+
+    static func data(from url: URL, session: URLSession = .shared, limit: Int = LimitedDownload.limit) async -> Data? {
+        guard LinkPolicy.isSecureMedia(url) else { return nil }
+        let task = session.dataTask(with: url)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+                task.delegate = LimitedDownload(maximum: limit) { continuation.resume(returning: $0) }
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
+        let isOK = ((response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) }) ?? false
+        completionHandler(isOK && response.expectedContentLength <= Int64(maximum) ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        received.append(data)
+        if received.count > maximum {
+            complete(nil)
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        complete(error == nil ? received : nil)
+    }
+
+    private func complete(_ data: Data?) {
+        guard !isDone else { return }
+        isDone = true
+        finish(data)
     }
 }
 
@@ -165,7 +219,7 @@ private struct ExternalCard: View {
 
     var body: some View {
         Button {
-            if let url = URL(string: link.uri) { openURL(url) }
+            if let url = LinkPolicy.webURL(link.uri) { openURL(url) }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 if let thumb = link.thumb.flatMap(URL.init(string:)) {
@@ -196,6 +250,7 @@ private struct ExternalCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(LinkPolicy.webURL(link.uri) == nil)
         .help(link.uri)
     }
 }
@@ -274,7 +329,8 @@ private struct QuoteCard: View {
                             maxLines: 8,
                             onTap: { postTap() },
                             menuEntries: { deck.personMenuEntries(person: quoted.author, accountDID: accountDID, openProfile: openProfile) },
-                            onOpenLink: { openURL($0) }
+                            onOpenLink: { openURL($0) },
+                            onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) }
                         )
                     }
                     if quoted.embeds?.isEmpty == false {

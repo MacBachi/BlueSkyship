@@ -124,7 +124,8 @@ struct PostRow: View {
                             fontSize: deck.settings.textSize.points,
                             onTap: { onOpenThread(post) },
                             menuEntries: { menuEntries },
-                            onOpenLink: { openURL($0) }
+                            onOpenLink: { openURL($0) },
+                            onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) }
                         )
                     }
                     if let embed = post.embed {

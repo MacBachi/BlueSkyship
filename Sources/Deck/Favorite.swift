@@ -79,7 +79,7 @@ enum FavoriteInput: Equatable {
 
         if text.lowercased().hasPrefix("http://") || text.lowercased().hasPrefix("https://") {
             // A link to a profile works. Any other web address means nothing here.
-            guard let url = URL(string: text), url.host?.hasSuffix("bsky.app") == true else { return .invalid }
+            guard let url = URL(string: text), LinkPolicy.isBlueskyHost(url.host) else { return .invalid }
             let parts = url.pathComponents.filter { $0 != "/" }
             return parts.count == 2 && parts[0] == "profile" ? .person(parts[1]) : .invalid
         }

@@ -1085,6 +1085,140 @@ final class FakeCloudStore: CloudStore {
     }
 }
 
+/// Everything in a post is written by a stranger.
+@MainActor
+@Suite struct HostilePostTests {
+    private let hostile = [
+        "shortcuts://run-shortcut?name=Evil", "file:///Applications/Calculator.app",
+        "x-apple.systempreferences:com.apple.preference.security", "facetime://victim@example.com",
+        "tel:+4312345", "ssh://root@evil.example", "smb://evil.example/share", "vnc://evil.example",
+        "x-man-page://ls", "javascript:alert(1)", "mailto:a@evil.example", "ftp://evil.example",
+        "bskyship://tag?v=evil", "bskyship://profile?v=did:plc:evil", "HTTPS:", "https://",
+        "https://bsky.app@evil.example/settings", "https://user:pass@evil.example/", "not a url",
+    ]
+
+    private func links(in text: AttributedString) -> [URL] {
+        text.runs.compactMap(\.link)
+    }
+
+    @Test func onlyWebAddressesBecomeLinks() {
+        for target in hostile {
+            let text = RichText.attributed(text: "click me", facets: [Facet(byteStart: 0, byteEnd: 8, feature: .link(target))])
+            #expect(links(in: text).isEmpty, "\(target) must stay plain text")
+            #expect(String(text.characters) == "click me", "the text itself stays visible")
+        }
+        for target in ["https://example.com/a?b=c", "http://example.com", "HTTPS://Example.com"] {
+            let text = RichText.attributed(text: "click me", facets: [Facet(byteStart: 0, byteEnd: 8, feature: .link(target))])
+            #expect(links(in: text).count == 1, "\(target) stays a link")
+        }
+    }
+
+    @Test func mentionsCannotCarryAnythingButAnIdentifier() {
+        let forged = RichText.attributed(text: "@x", facets: [Facet(byteStart: 0, byteEnd: 2, feature: .mention(did: "https://evil.example"))])
+        #expect(links(in: forged).isEmpty)
+        let real = RichText.attributed(text: "@x", facets: [Facet(byteStart: 0, byteEnd: 2, feature: .mention(did: "did:plc:abc"))])
+        #expect(RichText.mentionedDID(in: try! #require(links(in: real).first)) == "did:plc:abc")
+    }
+
+    /// The exact path of a real click: nothing reaches the app or macOS unless it passes.
+    private func click(_ link: Any, shown: String = "click me") -> (opened: [URL], warned: [URL], handled: Bool) {
+        let view = SelectablePostText(text: AttributedString(shown), fontSize: 13, onOpenLink: { _ in })
+        let coordinator = view.makeCoordinator()
+        var opened: [URL] = []
+        var warned: [URL] = []
+        coordinator.onOpenLink = { opened.append($0) }
+        coordinator.onMisleadingLink = { url, _ in warned.append(url) }
+        let text = NSTextView()
+        text.textStorage?.setAttributedString(NSAttributedString(string: shown, attributes: [.link: link]))
+        let handled = coordinator.textView(text, clickedOnLink: link, at: 0)
+        return (opened, warned, handled)
+    }
+
+    @Test func aClickOnAHostileLinkOpensNothing() {
+        for target in hostile where !target.hasPrefix("bskyship") {
+            for link in [target as Any, URL(string: target) as Any] {
+                let result = click(link)
+                #expect(result.opened.isEmpty && result.warned.isEmpty, "\(target)")
+                #expect(result.handled, "the text view must not open it by itself")
+            }
+        }
+        #expect(click("not a url").handled)
+    }
+
+    @Test func aLinkThatLiesAboutItsTargetAsksFirst() throws {
+        let evil = try #require(URL(string: "https://evil.example/login"))
+        let lying = click(evil, shown: "https://bsky.app/settings/app-passwords")
+        #expect(lying.opened.isEmpty)
+        #expect(lying.warned == [evil])
+        let honest = click(evil, shown: "evil.example/login")
+        #expect(honest.opened == [evil])
+        #expect(honest.warned.isEmpty)
+        #expect(click(evil, shown: "read more").opened == [evil])
+    }
+
+    @Test func recognizesMisleadingText() throws {
+        let target = try #require(URL(string: "https://www.example.com/a"))
+        for shown in ["bsky.app", "https://bsky.app/x", "see bsky.app now", "BSKY.APP", "(paypal.com)", "bsky.app@example.com", "example.com.evil.net", "exаmple.com"] {
+            #expect(LinkPolicy.isMisleading(shown: shown, target: target), "\(shown)")
+        }
+        for shown in ["example.com", "www.example.com/a", "https://example.com/very/long...", "EXAMPLE.com", "read more", "click here", "", "e.g. this"] {
+            #expect(!LinkPolicy.isMisleading(shown: shown, target: target), "\(shown)")
+        }
+        let lookalike = try #require(URL(string: "https://bsky.app.evil.example/"))
+        #expect(LinkPolicy.isMisleading(shown: "bsky.app", target: lookalike))
+        let subdomain = try #require(URL(string: "https://m.example.com/"))
+        #expect(!LinkPolicy.isMisleading(shown: "example.com", target: subdomain))
+    }
+
+    @Test func tooltipsShowTheRealTarget() throws {
+        let text = RichText.attributed(text: "click me", facets: [Facet(byteStart: 0, byteEnd: 8, feature: .link("https://evil.example/x"))])
+        let shown = SelectablePostText.attributed(text, fontSize: 13, color: .labelColor)
+        #expect(shown.attribute(.toolTip, at: 0, effectiveRange: nil) as? String == "https://evil.example/x")
+    }
+
+    @Test func aMisleadingLinkNeedsAYesAndTheConfirmationOpensNothingUnsafe() async throws {
+        let deck = DeckStore()
+        let url = try #require(URL(string: "https://evil.example/"))
+        let confirmation = DeckConfirmation.openLink(url, shownAs: "bsky.app")
+        #expect(confirmation.message.contains("evil.example"))
+        #expect(confirmation.message.contains("bsky.app"))
+        await deck.perform(confirmation)
+    }
+
+    @Test func onlyExactBlueskyHostsCount() {
+        for host in ["bsky.app", "BSKY.app", "video.bsky.app"] { #expect(LinkPolicy.isBlueskyHost(host), "\(host)") }
+        for host in ["evilbsky.app", "bsky.app.evil.example", "bsky.apps", ""] { #expect(!LinkPolicy.isBlueskyHost(host), "\(host)") }
+        #expect(!LinkPolicy.isBlueskyHost(nil))
+        #expect(FeedLink.parse("https://evilbsky.app/profile/a/feed/b") == nil)
+        #expect(FeedLink.parse("https://bsky.app/profile/a/feed/b") != nil)
+    }
+
+    @Test func mediaLoadsOnlyOverHTTPSAndWithinTheLimit() async throws {
+        let host = "media-\(UUID().uuidString).test"
+        StubProtocol.register(host: host) { request in
+            switch request.url?.lastPathComponent {
+            case "big": return (200, Data(count: 5000))
+            case "missing": return (404, Data("nope".utf8))
+            default: return (200, Data("picture".utf8))
+            }
+        }
+        let session = StubProtocol.session()
+        #expect(await LimitedDownload.data(from: URL(string: "https://\(host)/a")!, session: session, limit: 100) == Data("picture".utf8))
+        #expect(await LimitedDownload.data(from: URL(string: "https://\(host)/big")!, session: session, limit: 100) == nil)
+        #expect(await LimitedDownload.data(from: URL(string: "https://\(host)/missing")!, session: session, limit: 100) == nil)
+        #expect(await LimitedDownload.data(from: URL(string: "http://\(host)/a")!, session: session, limit: 100) == nil)
+        #expect(await LimitedDownload.data(from: URL(string: "file:///etc/hosts")!, session: session, limit: 100) == nil)
+    }
+
+    @Test func showingPostsWritesNothing() async throws {
+        let app = DeckHarness(size: CGSize(width: 800, height: 700))
+        defer { app.close() }
+        await app.openHome()
+        await app.settle(1)
+        #expect(app.server.writeNames.isEmpty, "showing posts writes nothing")
+    }
+}
+
 @Suite struct LoginIdentifierTests {
     @Test func aShortNameIsEnough() {
         #expect(LoginIdentifier.normalized("peter") == "peter.bsky.social")

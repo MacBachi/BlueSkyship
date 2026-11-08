@@ -36,6 +36,11 @@ extension DeckStore {
                 showToast(tr("\(person.bestName) ist blockiert.", "\(person.bestName) is blocked."))
             case .deleteDeck(let page):
                 deleteDeck(page.id)
+            case .openLink(let url, _):
+                if LinkPolicy.isWebURL(url), !RuntimeEnvironment.isUnitTestHost {
+                    NSWorkspace.shared.open(url)
+                }
+                return
             }
             moderationGeneration += 1
         } catch {

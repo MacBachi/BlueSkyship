@@ -504,7 +504,7 @@ enum FeedLink: Equatable, Sendable {
             if text.contains("/app.bsky.graph.list/") { return .list(text) }
             return nil
         }
-        guard let url = URL(string: text), url.host?.hasSuffix("bsky.app") == true else { return nil }
+        guard let url = URL(string: text), LinkPolicy.isBlueskyHost(url.host) else { return nil }
         let parts = url.pathComponents.filter { $0 != "/" }
         guard parts.count == 4, parts[0] == "profile" else { return nil }
         switch parts[2] {

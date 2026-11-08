@@ -38,17 +38,39 @@ struct SelectablePostText: NSViewRepresentable {
     var onTap: (@MainActor () -> Void)?
     var menuEntries: @MainActor () -> [PostMenuEntry] = { [] }
     var onOpenLink: @MainActor (URL) -> Void
+    /// A link whose text names a different site than it goes to. Opens nothing unless this asks first.
+    var onMisleadingLink: @MainActor (URL, String) -> Void = { _, _ in }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var onOpenLink: @MainActor (URL) -> Void = { _ in }
+        var onMisleadingLink: @MainActor (URL, String) -> Void = { _, _ in }
         weak var view: PostTextView?
 
+        /// Always returns true: returning false would let the text view open the address by itself.
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
             view?.didClickLink = true
             let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:))
-            guard let url else { return false }
-            MainActor.assumeIsolated { onOpenLink(url) }
+            guard let url else { return true }
+            let shown = Self.shownText(of: textView, at: charIndex)
+            MainActor.assumeIsolated {
+                if url.scheme == RichText.internalScheme {
+                    onOpenLink(url)
+                } else if LinkPolicy.isWebURL(url) {
+                    if LinkPolicy.isMisleading(shown: shown, target: url) {
+                        onMisleadingLink(url, shown)
+                    } else {
+                        onOpenLink(url)
+                    }
+                }
+            }
             return true
+        }
+
+        private static func shownText(of textView: NSTextView, at index: Int) -> String {
+            guard let storage = textView.textStorage, index >= 0, index < storage.length else { return "" }
+            var range = NSRange()
+            _ = storage.attribute(.link, at: index, effectiveRange: &range)
+            return storage.attributedSubstring(from: range).string
         }
     }
 
@@ -74,6 +96,7 @@ struct SelectablePostText: NSViewRepresentable {
 
     func updateNSView(_ view: PostTextView, context: Context) {
         context.coordinator.onOpenLink = onOpenLink
+        context.coordinator.onMisleadingLink = onMisleadingLink
         view.onTap = onTap
         view.menuEntries = menuEntries
         view.textContainer?.maximumNumberOfLines = maxLines
@@ -98,6 +121,15 @@ struct SelectablePostText: NSViewRepresentable {
         let whole = NSRange(location: 0, length: result.length)
         result.addAttribute(.font, value: NSFont.systemFont(ofSize: fontSize), range: whole)
         result.addAttribute(.foregroundColor, value: color, range: whole)
+        // Shows where a link really goes before anyone clicks it.
+        result.enumerateAttribute(.link, in: whole) { value, range, _ in
+            guard let url = value as? URL else { return }
+            if LinkPolicy.isWebURL(url) {
+                result.addAttribute(.toolTip, value: url.absoluteString, range: range)
+            } else {
+                result.addAttribute(.toolTip, value: tr("In der App öffnen", "Open in the app"), range: range)
+            }
+        }
         return result
     }
 }

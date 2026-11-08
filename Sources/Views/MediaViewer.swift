@@ -6,6 +6,8 @@ struct MediaViewer: View {
     @Environment(DeckStore.self) private var deck
     @Environment(\.openURL) private var openURL
     let media: MediaPresentation
+    /// Only for tests. Addresses from posts are never local files.
+    var allowsLocalVideo = false
 
     var body: some View {
         ZStack {
@@ -18,7 +20,7 @@ struct MediaViewer: View {
             case .images(let images, let index):
                 imagePage(images, index: index)
             case .video(let video, _):
-                VideoStage(video: video, onFinished: close)
+                VideoStage(video: video, allowsLocalVideo: allowsLocalVideo, onFinished: close)
                     .padding(48)
             }
 
@@ -40,7 +42,7 @@ struct MediaViewer: View {
     private var browserURL: URL? {
         switch media {
         case .images(let images, let index):
-            return images.indices.contains(index) ? URL(string: images[index].fullsize) : nil
+            return images.indices.contains(index) ? LinkPolicy.webURL(images[index].fullsize) : nil
         case .video(_, let webURL):
             return webURL
         }
@@ -122,6 +124,7 @@ struct MediaViewer: View {
 /// Bluesky serves video as HLS, which AVPlayer plays natively.
 private struct VideoStage: View {
     let video: VideoEmbed
+    let allowsLocalVideo: Bool
     let onFinished: () -> Void
     @State private var player: AVQueuePlayer?
     /// Kept here, because a queue player may already have let go of an item when it reports its end.
@@ -141,7 +144,8 @@ private struct VideoStage: View {
             }
         }
         .onAppear {
-            guard player == nil, let url = URL(string: video.playlist) else { return }
+            guard player == nil, let url = URL(string: video.playlist),
+                  LinkPolicy.isSecureMedia(url) || (allowsLocalVideo && url.isFileURL) else { return }
             let item = AVPlayerItem(url: url)
             self.item = item
             let newPlayer = AVQueuePlayer(playerItem: item)

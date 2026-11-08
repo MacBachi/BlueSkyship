@@ -32,9 +32,10 @@ enum RichText {
     private static func linkURL(_ feature: Facet.Feature) -> URL? {
         switch feature {
         case .link(let uri):
-            return URL(string: uri)
+            // Anything but a web address stays plain text. This also keeps a post from forging internal links.
+            return LinkPolicy.webURL(uri)
         case .mention(let did):
-            return internalURL(host: "profile", value: did)
+            return did.hasPrefix("did:") ? internalURL(host: "profile", value: did) : nil
         case .tag(let tag):
             return internalURL(host: "tag", value: tag)
         case .unknown:

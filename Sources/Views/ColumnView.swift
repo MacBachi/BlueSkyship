@@ -68,7 +68,9 @@ struct ColumnView: View {
                 routes.append(.profile(did))
                 return .handled
             }
-            return deck.handleInternalLink(url, accountDID: column.accountDID) ? .handled : .systemAction
+            if deck.handleInternalLink(url, accountDID: column.accountDID) { return .handled }
+            // The last gate before macOS, whatever view the address came from.
+            return LinkPolicy.isWebURL(url) ? .systemAction : .discarded
         })
         .onChange(of: deck.columnSearchRequest) { _, request in
             if request?.columnID == column.id { openSearch() }

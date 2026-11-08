@@ -62,13 +62,13 @@ import Testing
         return url
     }
 
-    private func show(_ url: URL, presentation: String) async throws -> (DeckStore, NSWindow) {
+    private func show(_ url: URL, presentation: String, allowsLocalVideo: Bool = true) async throws -> (DeckStore, NSWindow) {
         let json = #"{"$type":"app.bsky.embed.video#view","playlist":"\#(url.absoluteString)","presentation":"\#(presentation)"}"#
         let video = try JSONDecoder().decode(VideoEmbed.self, from: Data(json.utf8))
         let deck = DeckStore()
         deck.media = .video(video, webURL: nil)
         let size = CGSize(width: 300, height: 300)
-        let hosting = NSHostingView(rootView: MediaViewer(media: .video(video, webURL: nil))
+        let hosting = NSHostingView(rootView: MediaViewer(media: .video(video, webURL: nil), allowsLocalVideo: allowsLocalVideo)
             .environment(deck).frame(width: size.width, height: size.height))
         hosting.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(
@@ -78,6 +78,16 @@ import Testing
         window.contentView = hosting
         window.orderFrontRegardless()
         return (deck, window)
+    }
+
+    /// The same clip that plays in the test below. If this played, the viewer would close when it ended.
+    @Test func aPostCannotPlayALocalFile() async throws {
+        let url = try await makeShortVideo()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let (deck, window) = try await show(url, presentation: "default", allowsLocalVideo: false)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .seconds(4))
+        #expect(deck.media != nil, "a file address must not start playing")
     }
 
     @Test func aFinishedVideoClosesTheViewerButALoopingClipKeepsPlaying() async throws {

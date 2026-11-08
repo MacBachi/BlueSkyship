@@ -7,7 +7,7 @@ enum LoginIdentifier {
     /// "peter", "@peter" and a profile link all become "peter.bsky.social". An email stays as it is.
     static func normalized(_ raw: String) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: text), url.host?.hasSuffix("bsky.app") == true {
+        if let url = URL(string: text), LinkPolicy.isBlueskyHost(url.host) {
             let parts = url.pathComponents.filter { $0 != "/" }
             if parts.count >= 2, parts[0] == "profile" { text = parts[1] }
         }
