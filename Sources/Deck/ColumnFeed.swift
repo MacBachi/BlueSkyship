@@ -39,6 +39,18 @@ final class ColumnFeed {
     /// with no matches would fetch more pages on every auto-refresh, forever.
     private var autoFillBudget = ColumnFeed.maxPagesPerLoad
 
+    /// A search in this column only. Never saved, and gone when the search closes.
+    var searchTerm = "" {
+        didSet {
+            guard searchTerm != oldValue else { return }
+            refreshVisible()
+            anchorID = nil
+            autoFillBudget = Self.maxPagesPerLoad
+        }
+    }
+
+    var isSearching: Bool { !searchTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     /// What the account has set in Bluesky. Applies on top of the column's own filter.
     var moderation = ModerationPrefs() {
         didSet {
@@ -50,6 +62,7 @@ final class ColumnFeed {
 
     private func shown(_ items: [ColumnItem]) -> [ColumnItem] {
         filter.apply(items).filter { item in
+            if isSearching, !item.matchesSearch(searchTerm) { return false }
             guard let post = item.displayedPost else { return true }
             return moderation.decision(for: post, isOwn: isOwnPost(post)) != .hide
         }
@@ -92,7 +105,7 @@ final class ColumnFeed {
 
     /// Keeps a filtered column from looking empty just because the first page had few matches.
     func fillIfNeeded(using client: XRPCClient, kind: ColumnKind) async {
-        guard filter.isActive, !items.isEmpty, autoFillBudget > 0 else { return }
+        guard filter.isActive || isSearching, !items.isEmpty, autoFillBudget > 0 else { return }
         await fetchPages(until: Self.minimumVisibleItems, usesAutoFillBudget: true, using: client, kind: kind)
     }
 

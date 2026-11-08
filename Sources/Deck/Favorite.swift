@@ -21,8 +21,18 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
     var avatar: String?
     /// Only for views tied to one account, such as its notifications. Others use the first account.
     var accountDID: String?
+    /// From a column moved here, so that pinning it again brings back the same column.
+    var filter: ColumnFilter?
+    var width: ColumnWidth?
 
     var avatarURL: URL? { avatar.flatMap(URL.init(string:)) }
+
+    var personHandle: String? {
+        switch kind {
+        case .author(let actor), .profileTab(let actor, _): return actor
+        default: return nil
+        }
+    }
 
     /// Fixed views follow the app language; names of people, searches and feeds stay as saved.
     var displayTitle: String {

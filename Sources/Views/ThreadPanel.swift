@@ -35,7 +35,17 @@ struct OpenRouteAction: @unchecked Sendable {
     }
 }
 
+/// What a click on a post does, for text deep inside the row that receives the click itself.
+struct PostTapAction: @unchecked Sendable {
+    let handler: @MainActor () -> Void
+
+    @MainActor func callAsFunction() {
+        handler()
+    }
+}
+
 extension EnvironmentValues {
+    @Entry var postTap = PostTapAction {}
     @Entry var openRoute = OpenRouteAction { _ in }
     @Entry var openProfile = OpenProfileAction { _ in }
     @Entry var openReactions = OpenReactionsAction { _ in }

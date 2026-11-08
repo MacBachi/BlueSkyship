@@ -70,6 +70,14 @@ final class AccountStore {
         }
     }
 
+    #if DEBUG
+    /// Signs in a simulated account for automated tests. Stores nothing.
+    func installForTesting(_ account: Account, client: XRPCClient) {
+        accounts.append(account)
+        clients[account.did] = client
+    }
+    #endif
+
     func client(for did: String?) -> XRPCClient? {
         guard let did else { return nil }
         return clients[did]

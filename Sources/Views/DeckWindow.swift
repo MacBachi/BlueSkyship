@@ -15,6 +15,12 @@ struct DeckWindow: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
                 Divider()
             }
+            if deck.isShowingGlobalSearch {
+                GlobalSearchPanel()
+                    .frame(width: 260)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                Divider()
+            }
             if deck.isShowingFavorites {
                 FavoritesPanel()
                     .frame(width: 260)
@@ -31,6 +37,7 @@ struct DeckWindow: View {
         }
         .animation(.snappy(duration: 0.2), value: deck.compose != nil)
         .animation(.snappy(duration: 0.2), value: deck.isShowingFavorites)
+        .animation(.snappy(duration: 0.2), value: deck.isShowingGlobalSearch)
         .background(Color(nsColor: .underPageBackgroundColor))
         .overlay(alignment: .bottom) {
             if let toast = deck.toast {
@@ -96,6 +103,8 @@ private struct DeckColumns: View {
             } actions: {
                 Button(tr("Spalte hinzufügen", "Add Column")) { deck.isAddingColumn = true }
             }
+            // Without this the window centers its content and shows empty areas at both sides.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollViewReader { proxy in
                 VStack(spacing: 0) {
@@ -226,6 +235,13 @@ private struct NavigationRail: View {
                     deck.compose = nil
                 } else {
                     deck.startCompose()
+                }
+            }
+            railButton(tr("Bluesky durchsuchen (⌘⇧F)", "Search Bluesky (⌘⇧F)"), systemImage: "magnifyingglass") {
+                if deck.isShowingGlobalSearch {
+                    deck.closeGlobalSearch()
+                } else {
+                    deck.isShowingGlobalSearch = true
                 }
             }
             railButton(tr("Spalte hinzufügen (⌘T)", "Add column (⌘T)"), systemImage: "plus.rectangle.on.rectangle") {

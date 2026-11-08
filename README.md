@@ -60,6 +60,10 @@ Die App zeigt sich auf Deutsch oder Englisch. Standard ist die Systemsprache (al
 
 Der Stern in der linken Leiste (⌘D) öffnet eine Liste mit Personen, Hashtags, Suchen, Feeds und Listen, die keine Spalte belegen. Ein Klick zeigt den Inhalt vorübergehend daneben, die Stecknadel heftet ihn dauerhaft als Spalte an. Hinzufügen geht per Eingabe (`@name`, `#tag`, Suchbegriff oder Bluesky-Link), per Rechtsklick auf eine Person oder über das Spaltenmenü. Favoriten liegen nur lokal auf diesem Mac.
 
+## Suchen
+
+Ganz Bluesky: Lupe links oder `⌘⇧F`. Eine Spalte: Lupe im Spaltenkopf oder `⌘F`.
+
 ## Weitere Funktionen
 
 - **Threads, Entwürfe, Planen:** im Composer. Entwürfe sichern den Text beim Tippen. Geplante Posts sendet die App nur, solange sie läuft und der Mac wach ist.

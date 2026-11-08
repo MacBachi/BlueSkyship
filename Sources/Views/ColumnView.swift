@@ -1,5 +1,14 @@
 import SwiftUI
 
+/// The icons are smaller than a comfortable click target, so the clickable area is set explicitly.
+private struct HeaderIconTarget: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .frame(width: 24, height: 24)
+            .contentShape(Rectangle())
+    }
+}
+
 struct ColumnView: View {
     @Environment(DeckStore.self) private var deck
     let column: Column
@@ -9,8 +18,14 @@ struct ColumnView: View {
     @State private var routes: [ColumnRoute] = []
     @State private var isDropTarget = false
     @State private var isEditingFilter = false
+    @State private var isSearchOpen = false
+    @FocusState private var isSearchFocused: Bool
 
     private var feed: ColumnFeed { deck.feed(for: column) }
+    private var isMessagesColumn: Bool {
+        if case .messages = column.kind { return true }
+        return false
+    }
     private var account: Account? { deck.accounts.accounts.first { $0.did == column.accountDID } }
 
     var body: some View {
@@ -20,6 +35,10 @@ struct ColumnView: View {
             if let route = routes.last {
                 panel(for: route)
             } else {
+                if isSearchOpen {
+                    searchBar
+                    Divider()
+                }
                 if column.filter != nil {
                     filterStatus
                     Divider()
@@ -51,6 +70,16 @@ struct ColumnView: View {
             }
             return deck.handleInternalLink(url, accountDID: column.accountDID) ? .handled : .systemAction
         })
+        .onChange(of: deck.columnSearchRequest) { _, request in
+            if request?.columnID == column.id { openSearch() }
+        }
+        .task(id: feed.searchTerm) {
+            // Waits for a typing pause, so not every keystroke fetches more pages.
+            guard feed.isSearching else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let client = deck.readClient(for: column) else { return }
+            await feed.fillIfNeeded(using: client, kind: column.kind)
+        }
         .onChange(of: deck.columnRequest) { _, request in
             guard let request, request.columnID == column.id else { return }
             switch request.action {
@@ -129,6 +158,45 @@ struct ColumnView: View {
         await feed.fillIfNeeded(using: client, kind: column.kind)
     }
 
+    private func openSearch() {
+        routes = []
+        isSearchOpen = true
+        isSearchFocused = true
+    }
+
+    private func closeSearch() {
+        isSearchOpen = false
+        feed.searchTerm = ""
+    }
+
+    private var searchBar: some View {
+        @Bindable var feed = feed
+        return HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField(tr("In dieser Spalte suchen", "Search this column"), text: $feed.searchTerm)
+                .textFieldStyle(.plain)
+                .focused($isSearchFocused)
+                .onExitCommand { closeSearch() }
+            if feed.isSearching {
+                Text(tr("\(feed.visibleItems.count) Treffer", "\(feed.visibleItems.count) found"))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+            if feed.isLoadingMore {
+                ProgressView().controlSize(.small)
+            }
+            Button(action: closeSearch) {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(tr("Suche schließen", "Close search"))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
     private var filterStatus: some View {
         Button {
             isEditingFilter = true
@@ -152,10 +220,11 @@ struct ColumnView: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 2) {
             Image(systemName: column.kind.systemImage)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
+                .padding(.trailing, 6)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 5) {
                     Text(column.kind.title)
@@ -182,6 +251,18 @@ struct ColumnView: View {
             if feed.isRefreshing {
                 ProgressView().controlSize(.small)
             }
+            if !isMessagesColumn {
+                Button {
+                    if isSearchOpen { closeSearch() } else { openSearch() }
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .modifier(HeaderIconTarget())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isSearchOpen ? Color.accentColor : Color.secondary)
+                .help(tr("In dieser Spalte suchen (⌘F)", "Search this column (⌘F)"))
+                .accessibilityLabel(tr("In dieser Spalte suchen", "Search this column"))
+            }
             if favoritePreview == nil {
                 Button {
                     isEditingFilter.toggle()
@@ -189,6 +270,7 @@ struct ColumnView: View {
                     Image(systemName: column.filter == nil
                         ? "line.3.horizontal.decrease.circle"
                         : "line.3.horizontal.decrease.circle.fill")
+                        .modifier(HeaderIconTarget())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(column.filter == nil ? Color.secondary : Color.accentColor)
@@ -202,6 +284,7 @@ struct ColumnView: View {
                 Task { await refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .modifier(HeaderIconTarget())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -209,9 +292,27 @@ struct ColumnView: View {
             .accessibilityLabel(tr("Aktualisieren", "Refresh"))
             if let favoritePreview {
                 Button {
+                    if deck.isFavorite(favoritePreview.kind) {
+                        deck.removeFavorite(kind: favoritePreview.kind)
+                    } else {
+                        deck.addFavorite(
+                            kind: favoritePreview.kind, title: favoritePreview.title,
+                            avatar: favoritePreview.avatar, accountDID: favoritePreview.accountDID
+                        )
+                    }
+                } label: {
+                    Image(systemName: deck.isFavorite(favoritePreview.kind) ? "star.fill" : "star")
+                        .modifier(HeaderIconTarget())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(tr("In den Favoriten speichern oder daraus entfernen", "Save to or remove from favorites"))
+                .accessibilityLabel(tr("Favorit", "Favorite"))
+                Button {
                     deck.pinAsColumn(favoritePreview)
                 } label: {
                     Image(systemName: "pin")
+                        .modifier(HeaderIconTarget())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -221,6 +322,7 @@ struct ColumnView: View {
                     deck.closeFavoritePreview()
                 } label: {
                     Image(systemName: "xmark")
+                        .modifier(HeaderIconTarget())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -267,6 +369,7 @@ struct ColumnView: View {
             Button(tr("Spalte entfernen", "Remove Column"), role: .destructive) { deck.removeColumn(column.id) }
         } label: {
             Image(systemName: "ellipsis")
+                .modifier(HeaderIconTarget())
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -364,7 +467,9 @@ struct ColumnView: View {
                 ContentUnavailableView {
                     Label(tr("Keine Treffer", "No matches"), systemImage: "line.3.horizontal.decrease.circle")
                 } description: {
-                    Text(tr("Der Filter blendet alle \(feed.hiddenCount) geladenen Einträge aus.", "The filter hides all \(feed.hiddenCount) loaded items."))
+                    Text(feed.isSearching
+                        ? tr("In den \(feed.items.count) geladenen Einträgen kommt das nicht vor.", "Not found in the \(feed.items.count) loaded items.")
+                        : tr("Der Filter blendet alle \(feed.hiddenCount) geladenen Einträge aus.", "The filter hides all \(feed.hiddenCount) loaded items."))
                 } actions: {
                     if feed.isLoadingMore {
                         ProgressView().controlSize(.small)
@@ -376,7 +481,9 @@ struct ColumnView: View {
                             }
                         }
                     }
-                    Button(tr("Filter bearbeiten", "Edit Filter")) { isEditingFilter = true }
+                    if !feed.isSearching {
+                        Button(tr("Filter bearbeiten", "Edit Filter")) { isEditingFilter = true }
+                    }
                 }
             } else if let message = feed.errorMessage {
                 ContentUnavailableView {

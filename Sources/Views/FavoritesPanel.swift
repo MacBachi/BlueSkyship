@@ -111,7 +111,7 @@ struct FavoritesPanel: View {
                     Text(favorite.displayTitle)
                         .font(.callout)
                         .lineLimit(1)
-                    if case .profileTab(let actor, _) = favorite.kind {
+                    if let actor = favorite.personHandle, favorite.displayTitle != "@\(actor)" {
                         Text("@\(actor)")
                             .font(.caption2)
                             .foregroundStyle(.secondary)

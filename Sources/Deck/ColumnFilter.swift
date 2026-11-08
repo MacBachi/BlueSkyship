@@ -40,6 +40,10 @@ struct ColumnFilter: Codable, Hashable, Sendable {
             .filter { !$0.isEmpty && seen.insert(fold($0)).inserted }
     }
 
+    static func foldForSearch(_ string: String) -> String {
+        fold(string)
+    }
+
     fileprivate static func fold(_ string: String) -> String {
         string.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
@@ -85,6 +89,23 @@ struct ColumnFilter: Codable, Hashable, Sendable {
 }
 
 extension ColumnItem {
+    /// For searching while typing: parts of words count, so results appear from the first letters on.
+    /// Every word has to appear, in the text or in the author's name.
+    func matchesSearch(_ term: String) -> Bool {
+        let words = ColumnFilter.foldForSearch(term).split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty else { return true }
+        let author: Profile? = {
+            switch self {
+            case .post(let item): return item.post.author
+            case .notification(let item): return item.raw.author
+            }
+        }()
+        let haystack = ColumnFilter.foldForSearch(
+            [searchableText, author?.bestName ?? "", author?.handle ?? ""].joined(separator: "\n")
+        )
+        return words.allSatisfy { haystack.contains($0) }
+    }
+
     /// The post this item shows, if any. A follow notification has none.
     var displayedPost: PostView? {
         switch self {

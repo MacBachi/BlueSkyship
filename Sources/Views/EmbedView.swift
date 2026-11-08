@@ -250,6 +250,11 @@ private struct RecordCardView: View {
 }
 
 private struct QuoteCard: View {
+    @Environment(DeckStore.self) private var deck
+    @Environment(\.openURL) private var openURL
+    @Environment(\.openProfile) private var openProfile
+    @Environment(\.postTap) private var postTap
+    @Environment(\.columnAccountDID) private var accountDID
     let quoted: QuotedPost?
 
     var body: some View {
@@ -263,10 +268,14 @@ private struct QuoteCard: View {
                     }
                     .contextMenu { PersonMenuItems(person: quoted.author) }
                     if !quoted.value.text.isEmpty {
-                        Text(RichText.attributed(text: quoted.value.text, facets: quoted.value.facets))
-                            .font(.subheadline)
-                            .lineLimit(8)
-                            .textSelection(.enabled)
+                        SelectablePostText(
+                            text: RichText.attributed(text: quoted.value.text, facets: quoted.value.facets),
+                            fontSize: 11,
+                            maxLines: 8,
+                            onTap: { postTap() },
+                            menuEntries: { deck.personMenuEntries(person: quoted.author, accountDID: accountDID, openProfile: openProfile) },
+                            onOpenLink: { openURL($0) }
+                        )
                     }
                     if quoted.embeds?.isEmpty == false {
                         Label(tr("Enthält Medien", "Contains media"), systemImage: "photo")

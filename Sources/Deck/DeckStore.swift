@@ -82,6 +82,9 @@ final class DeckStore {
     var keyboardFocus: KeyboardFocus?
     var columnRequest: ColumnNavigationRequest?
     var isShowingScheduled = false
+    var isShowingGlobalSearch = false
+    /// Which column should open its search; each request is new, so the same column can be asked again.
+    var columnSearchRequest: ColumnNavigationRequest?
     /// A picture pasted with ⌘V, waiting for the composer to pick it up.
     var pastedImageData: Data?
     /// What each account has set in Bluesky: muted words and labeled content.
@@ -228,24 +231,28 @@ final class DeckStore {
 
     func isFavorite(_ kind: ColumnKind) -> Bool {
         let normalized = Favorite.normalized(kind)
-        return favorites.contains { $0.kind == normalized }
+        return favorites.contains { Favorite.normalized($0.kind) == normalized }
     }
 
-    func addFavorite(kind: ColumnKind, title: String, avatar: String? = nil, accountDID: String? = nil) {
-        let normalized = Favorite.normalized(kind)
-        guard !isFavorite(normalized) else { return }
+    func addFavorite(
+        kind: ColumnKind, title: String, avatar: String? = nil, accountDID: String? = nil,
+        filter: ColumnFilter? = nil, width: ColumnWidth? = nil
+    ) {
+        guard !isFavorite(kind) else { return }
         favorites.append(Favorite(
-            kind: normalized,
+            kind: kind,
             title: title,
             avatar: avatar,
-            accountDID: Favorite.isTiedToAccount(normalized) ? accountDID : nil
+            accountDID: Favorite.isTiedToAccount(kind) ? accountDID : nil,
+            filter: filter,
+            width: width
         ))
         saveFavorites()
     }
 
     func removeFavorite(kind: ColumnKind) {
         let normalized = Favorite.normalized(kind)
-        if let favorite = favorites.first(where: { $0.kind == normalized }) {
+        if let favorite = favorites.first(where: { Favorite.normalized($0.kind) == normalized }) {
             removeFavorite(favorite)
         }
     }
@@ -267,9 +274,28 @@ final class DeckStore {
 
     /// Frees up the deck: the column goes away and stays reachable from the favorites list.
     func moveColumnToFavorites(_ column: Column) {
-        addFavorite(kind: column.kind, title: column.kind.title, accountDID: column.accountDID)
+        addFavorite(
+            kind: column.kind, title: column.kind.title, accountDID: column.accountDID,
+            filter: column.filter, width: column.width
+        )
         removeColumn(column.id)
         isShowingFavorites = true
+        Task { await fillInPersonDetails(for: column.kind) }
+    }
+
+    /// A column only knows the handle. A person belongs in the list with name and picture.
+    private func fillInPersonDetails(for kind: ColumnKind) async {
+        let actor: String
+        switch kind {
+        case .author(let name), .profileTab(let name, _): actor = name
+        default: return
+        }
+        let client = accounts.client(for: accounts.accounts.first?.did) ?? accounts.publicClient
+        guard let profile = try? await client.profile(actor: actor),
+              let index = favorites.firstIndex(where: { $0.kind == kind }) else { return }
+        favorites[index].title = profile.bestName
+        favorites[index].avatar = profile.avatar
+        saveFavorites()
     }
 
     /// Understands `@name`, `#tag`, a search term, or a bsky.app link to a profile, feed or list.
@@ -319,6 +345,34 @@ final class DeckStore {
         if !wasShowing { previewedFavorite = favorite }
     }
 
+    /// Shows something temporary next to the deck, without adding it to the favorites.
+    func showResult(kind: ColumnKind, title: String, avatar: String? = nil) {
+        closeFavoritePreview()
+        previewedFavorite = Favorite(kind: kind, title: title, avatar: avatar)
+    }
+
+    func searchBluesky(for term: String) {
+        guard !term.isEmpty else { return }
+        if term.hasPrefix("@"), !term.contains(" ") {
+            showResult(kind: .profileTab(actor: String(term.dropFirst()), tab: .replies), title: term)
+        } else if actingAccount(for: nil) != nil {
+            // The public service refuses searches, so this needs an account.
+            showResult(kind: .search(query: term), title: term)
+        }
+    }
+
+    func closeGlobalSearch() {
+        isShowingGlobalSearch = false
+        closeFavoritePreview()
+    }
+
+    /// The column the keyboard is on, otherwise the first one.
+    func startColumnSearch() {
+        guard let column = columns.first(where: { $0.id == keyboardFocus?.columnID }) ?? columns.first else { return }
+        revealColumnID = column.id
+        columnSearchRequest = ColumnNavigationRequest(columnID: column.id, action: .back)
+    }
+
     func closeFavoritePreview() {
         if let id = previewedFavorite?.id { feeds[id] = nil }
         previewedFavorite = nil
@@ -330,14 +384,23 @@ final class DeckStore {
             Column(
                 id: favorite.id,
                 kind: favorite.kind,
-                accountDID: favorite.accountDID ?? accounts.accounts.first?.did
+                accountDID: favorite.accountDID ?? accounts.accounts.first?.did,
+                filter: favorite.filter
             )
         }
     }
 
     func pinAsColumn(_ favorite: Favorite) {
         closeFavoritePreview()
-        openColumn(kind: favorite.kind, accountDID: favorite.accountDID ?? accounts.accounts.first?.did)
+        let accountDID = favorite.accountDID ?? accounts.accounts.first?.did
+        if columns.contains(where: { $0.kind == favorite.kind && $0.accountDID == accountDID }) {
+            openColumn(kind: favorite.kind, accountDID: accountDID)
+        } else {
+            addColumn(Column(
+                kind: favorite.kind, accountDID: accountDID,
+                width: favorite.width ?? settings.defaultWidth, filter: favorite.filter
+            ))
+        }
     }
 
     func saveFavorites() {

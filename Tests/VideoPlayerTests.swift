@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import AVKit
 import SwiftUI
 import Testing
@@ -35,5 +36,66 @@ import Testing
         }
         let player = try #require(players(in: hosting).first?.player)
         #expect(player.isMuted)
+    }
+
+    /// A real, very short video without a sound track, so playing it makes no noise.
+    private func makeShortVideo() async throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).mp4")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 64,
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
+        writer.add(input)
+        #expect(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &buffer)
+        let frame = try #require(buffer)
+        for index in 0..<10 {
+            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
+            adaptor.append(frame, withPresentationTime: CMTime(value: Int64(index), timescale: 20))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        #expect(writer.status == .completed)
+        return url
+    }
+
+    private func show(_ url: URL, presentation: String) async throws -> (DeckStore, NSWindow) {
+        let json = #"{"$type":"app.bsky.embed.video#view","playlist":"\#(url.absoluteString)","presentation":"\#(presentation)"}"#
+        let video = try JSONDecoder().decode(VideoEmbed.self, from: Data(json.utf8))
+        let deck = DeckStore()
+        deck.media = .video(video, webURL: nil)
+        let size = CGSize(width: 300, height: 300)
+        let hosting = NSHostingView(rootView: MediaViewer(media: .video(video, webURL: nil))
+            .environment(deck).frame(width: size.width, height: size.height))
+        hosting.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: CGRect(x: -20_000, y: -20_000, width: size.width, height: size.height),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        return (deck, window)
+    }
+
+    @Test func aFinishedVideoClosesTheViewerButALoopingClipKeepsPlaying() async throws {
+        let url = try await makeShortVideo()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let (normal, normalWindow) = try await show(url, presentation: "default")
+        defer { normalWindow.orderOut(nil) }
+        var waited = 0
+        while normal.media != nil, waited < 100 {
+            try await Task.sleep(for: .milliseconds(100))
+            waited += 1
+        }
+        #expect(normal.media == nil, "the viewer should close when the video ends")
+
+        let (clip, clipWindow) = try await show(url, presentation: "gif")
+        defer { clipWindow.orderOut(nil) }
+        try await Task.sleep(for: .seconds(3))
+        #expect(clip.media != nil, "a looping clip never closes by itself")
     }
 }

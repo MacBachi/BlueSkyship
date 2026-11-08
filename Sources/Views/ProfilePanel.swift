@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProfilePanel: View {
@@ -141,12 +142,11 @@ struct ProfilePanel: View {
     }
 
     private func countButton(_ value: Int?, _ label: String, list: PeopleList, actor: String) -> some View {
-        Button {
+        ProfileCountButton {
             openRoute(.people(actor: actor, list: list))
         } label: {
             count(value, label)
         }
-        .buttonStyle(.plain)
     }
 
     private func count(_ value: Int?, _ label: String) -> some View {
@@ -238,6 +238,35 @@ struct ProfilePanel: View {
             return
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+/// Looks like plain text at rest, so it shows on hover that it can be clicked.
+private struct ProfileCountButton<Label: View>: View {
+    let action: () -> Void
+    @ViewBuilder let label: Label
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            label
+                .underline(isHovering)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .onDisappear {
+            // Opening the list removes this view while the mouse is still over it.
+            if isHovering { NSCursor.pop() }
         }
     }
 }

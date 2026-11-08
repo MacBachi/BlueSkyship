@@ -24,6 +24,7 @@ enum HelpContent {
     /// Deliberately one line per feature. Anything longer belongs in the topics.
     static var tldr: [String] {
         [
+            tr("**Suchen:** `⌘⇧F` in ganz Bluesky, `⌘F` in einer Spalte, oder die Lupen.", "**Search:** `⌘⇧F` all of Bluesky, `⌘F` one column, or the magnifying glasses."),
             tr("**Spalten:** `⌘T` fügt hinzu. Am Kopf ziehen sortiert.", "**Columns:** `⌘T` adds one. Drag the header to reorder."),
             tr("**Verdeckte Spalten:** Die Leiste unten nennt sie. Klick springt hin.", "**Hidden columns:** The bottom bar names them. Click to jump."),
             tr("**Person:** Rechtsklick zeigt alle Posts in neuer Spalte. Klick aufs Bild zeigt das Profil.", "**People:** Right-click for all posts in a new column. Click the picture for the profile."),
@@ -33,7 +34,6 @@ enum HelpContent {
             tr("**Wer hat reagiert:** Rechtsklick auf einen Post, dann „Reaktionen anzeigen“.", "**Who reacted:** Right-click a post, then “Show Reactions”."),
             tr("**Posten:** `⌘N`, absenden mit `⌘↩`. Bis zu 4 Bilder.", "**Posting:** `⌘N`, send with `⌘↩`. Up to 4 pictures."),
             tr("**Medien:** Klick öffnet groß, `Esc` schließt, Pfeiltasten blättern.", "**Media:** Click to enlarge, `Esc` closes, arrow keys page."),
-            tr("**Neue Posts:** Nichts verrutscht beim Lesen. Der Knopf „neu“ holt sie.", "**New posts:** Nothing jumps while you read. The “new” button fetches them."),
             tr("**Tasten:** `j` `k` wandern, `l` liken, `r` antworten, `1`–`9` Spalte.", "**Keys:** `j` `k` move, `l` like, `r` reply, `1`–`9` column."),
             tr("**Einstellungen:** `⌘,`. Sprache, Aktualisierung, Konten.", "**Settings:** `⌘,`. Language, refresh, accounts."),
         ]
@@ -127,6 +127,12 @@ enum HelpContent {
                 tr("Passen nicht alle ins Fenster, nennt die **Leiste unten** die verdeckten mit Anzahl und Namen. Als verdeckt gilt, was zu weniger als der Hälfte sichtbar ist.", "When not all fit the window, the **bottom bar** gives the count and names of the hidden ones. A column counts as hidden when less than half of it shows."),
                 tr("Spalten aktualisieren sich selbst. Während du weiter unten liest, warten neue Posts hinter dem Knopf **„neu“**, damit nichts verrutscht.", "Columns refresh on their own. While you read further down, new posts wait behind the **“new”** button, so nothing jumps."),
             ]),
+            HelpTopic(id: "search", icon: "magnifyingglass", title: tr("Suchen", "Search"), bullets: [
+                tr("**In ganz Bluesky:** die Lupe links oder `⌘⇧F`. `↩` sucht in Posts, Personen werden beim Tippen vorgeschlagen, und `@name` öffnet ein Profil. Dafür brauchst du ein Konto.", "**All of Bluesky:** the magnifying glass on the left or `⌘⇧F`. `↩` searches posts, people are suggested as you type, and `@name` opens a profile. You need an account for this."),
+                tr("Das Ergebnis steht vorübergehend neben dem Deck. Der Stern speichert es als Favorit, die Stecknadel macht es zur Spalte.", "The result sits next to the deck for now. The star saves it as a favorite, the pin makes it a column."),
+                tr("**In einer Spalte:** die Lupe im Spaltenkopf oder `⌘F`. Es zählen auch Wortteile und Autorennamen, und alle eingegebenen Wörter müssen vorkommen. `Esc` beendet die Suche.", "**In one column:** the magnifying glass in the column header or `⌘F`. Parts of words and author names count too, and all words you enter must appear. `Esc` ends the search."),
+                tr("Die Spaltensuche durchsucht geladene Einträge und lädt einmalig bis zu fünf Seiten nach. „Weiter suchen“ holt ältere.", "The column search looks through loaded items and fetches up to five more pages once. “Keep Searching” gets older ones."),
+            ]),
             HelpTopic(id: "filters", icon: "line.3.horizontal.decrease.circle", title: tr("Filter", "Filters"), bullets: [
                 tr("Das **Filter-Symbol** im Spaltenkopf öffnet die Einstellungen der Spalte. Änderungen wirken sofort.", "The **filter icon** in the column header opens that column's filter. Changes apply at once."),
                 tr("**Nur mit diesen Wörtern:** Es reicht, wenn einer der Begriffe vorkommt. Trenne sie mit Komma.", "**Only with these words:** One of the terms is enough. Separate them with commas."),
@@ -140,7 +146,7 @@ enum HelpContent {
                 tr("**Rechtsklick auf eine Person** geht überall: auf dem Post, dem Bild, bei „hat repostet“, in Zitaten und Mitteilungen.", "**Right-clicking a person** works everywhere: on the post, the picture, “reposted”, in quotes and notifications."),
                 tr("Das Menü bietet: alle Posts in neuer Spalte, Profil anzeigen, zu Favoriten hinzufügen.", "The menu offers: all posts in a new column, show profile, add to favorites."),
                 tr("Ein **Klick aufs Bild** oder auf eine @Erwähnung zeigt das Profil in derselben Spalte, mit Posts, Antworten, Medien und Folgen. **Zurück** führt zur Timeline.", "A **click on the picture** or an @mention shows the profile in the same column, with posts, replies, media and following. **Back** returns to the timeline."),
-                tr("Text lässt sich mit der Maus markieren und mit `⌘C` kopieren.", "Text can be selected with the mouse and copied with `⌘C`."),
+                tr("Text markierst du durch Ziehen mit der Maus und kopierst ihn mit `⌘C` oder per Rechtsklick. Ein einfacher Klick öffnet weiterhin den Thread.", "Select text by dragging with the mouse and copy it with `⌘C` or a right-click. A plain click still opens the thread."),
                 tr("Ein Klick auf einen Post öffnet seinen **Thread** in der Spalte. Hashtags öffnen eine Suchspalte.", "Clicking a post opens its **thread** in the column. Hashtags open a search column."),
                 tr("Im Profil zeigen Klicks auf **Follower** und **Folgt** die Listen. Beim Eintippen von Namen erscheinen Vorschläge.", "On a profile, clicking **Followers** and **Following** shows the lists. Suggestions appear as you type a name."),
                 tr("**Stummschalten** und **Blockieren** gehen per Rechtsklick und wirken auf deinem Bluesky-Konto. Rückgängig machst du sie über `…` im Profil.", "**Mute** and **block** are in the right-click menu and apply to your Bluesky account. Undo them with `…` on the profile."),
@@ -202,6 +208,7 @@ enum HelpContent {
                 tr("`⌘N` Neuer Post", "`⌘N` New post"),
                 tr("`⌘↩` Post absenden", "`⌘↩` Send post"),
                 tr("`⌘T` Spalte hinzufügen", "`⌘T` Add column"),
+                tr("`⌘⇧F` Bluesky durchsuchen, `⌘F` in Spalte suchen", "`⌘⇧F` Search Bluesky, `⌘F` Search in column"),
                 tr("`⌘D` Favoriten ein- oder ausblenden", "`⌘D` Show or hide favorites"),
                 tr("`⌘R` Alle Spalten aktualisieren", "`⌘R` Refresh all columns"),
                 tr("`j` `k` Nächster und vorheriger Post", "`j` `k` Next and previous post"),

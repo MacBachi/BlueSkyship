@@ -53,6 +53,11 @@ private struct DeckCommands: Commands {
             }
             .keyboardShortcut("d")
             Divider()
+            Button(tr("Bluesky durchsuchen …", "Search Bluesky…")) { deck.isShowingGlobalSearch = true }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+            Button(tr("In Spalte suchen …", "Search in Column…")) { deck.startColumnSearch() }
+                .keyboardShortcut("f")
+            Divider()
             Button(tr("Alle Spalten aktualisieren", "Refresh All Columns")) { deck.refreshAll() }
                 .keyboardShortcut("r")
         }

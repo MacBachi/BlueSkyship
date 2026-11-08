@@ -1,7 +1,39 @@
 import SwiftUI
 import Translation
 
-/// What a right-click on a person offers, wherever that person appears.
+extension DeckStore {
+    /// What a right-click on a person offers, wherever that person appears.
+    func personMenuEntries(person: Profile, accountDID: String?, openProfile: OpenProfileAction) -> [PostMenuEntry] {
+        let favoriteKind = ColumnKind.profileTab(actor: person.handle, tab: .replies)
+        var entries = [
+            PostMenuEntry(title: tr("Alle Posts von \(person.bestName) in neuer Spalte", "All posts by \(person.bestName) in new column")) { [self] in
+                openColumn(kind: favoriteKind, accountDID: accountDID)
+            },
+            PostMenuEntry(title: tr("Profil von \(person.bestName) anzeigen", "Show profile of \(person.bestName)")) {
+                openProfile(person.did)
+            },
+            PostMenuEntry(title: isFavorite(favoriteKind)
+                ? tr("\(person.bestName) aus Favoriten entfernen", "Remove \(person.bestName) from Favorites")
+                : tr("\(person.bestName) zu Favoriten hinzufügen", "Add \(person.bestName) to Favorites")) { [self] in
+                toggleFavorite(person: person)
+            },
+        ]
+        if !isOwnAccount(did: person.did) {
+            entries += [
+                .separator,
+                PostMenuEntry(title: tr("\(person.bestName) stummschalten …", "Mute \(person.bestName)…")) { [self] in
+                    confirmation = .mute(person, accountDID: accountDID)
+                },
+                PostMenuEntry(title: tr("\(person.bestName) blockieren …", "Block \(person.bestName)…"), isDestructive: true) { [self] in
+                    confirmation = .block(person, accountDID: accountDID)
+                },
+            ]
+        }
+        return entries
+    }
+}
+
+/// The person menu as SwiftUI context menu content.
 struct PersonMenuItems: View {
     @Environment(DeckStore.self) private var deck
     @Environment(\.openProfile) private var openProfile
@@ -9,26 +41,7 @@ struct PersonMenuItems: View {
     let person: Profile
 
     var body: some View {
-        Button(tr("Alle Posts von \(person.bestName) in neuer Spalte", "All posts by \(person.bestName) in new column")) {
-            deck.openColumn(kind: .profileTab(actor: person.handle, tab: .replies), accountDID: accountDID)
-        }
-        Button(tr("Profil von \(person.bestName) anzeigen", "Show profile of \(person.bestName)")) {
-            openProfile(person.did)
-        }
-        Button(deck.isFavorite(.profileTab(actor: person.handle, tab: .replies))
-            ? tr("\(person.bestName) aus Favoriten entfernen", "Remove \(person.bestName) from Favorites")
-            : tr("\(person.bestName) zu Favoriten hinzufügen", "Add \(person.bestName) to Favorites")) {
-            deck.toggleFavorite(person: person)
-        }
-        if !deck.isOwnAccount(did: person.did) {
-            Divider()
-            Button(tr("\(person.bestName) stummschalten …", "Mute \(person.bestName)…")) {
-                deck.confirmation = .mute(person, accountDID: accountDID)
-            }
-            Button(tr("\(person.bestName) blockieren …", "Block \(person.bestName)…"), role: .destructive) {
-                deck.confirmation = .block(person, accountDID: accountDID)
-            }
-        }
+        PostMenuItems(entries: deck.personMenuEntries(person: person, accountDID: accountDID, openProfile: openProfile))
     }
 }
 
@@ -106,10 +119,13 @@ struct PostRow: View {
                             .contextMenu { PersonMenuItems(person: replyingTo) }
                     }
                     if !post.record.text.isEmpty {
-                        Text(RichText.attributed(text: post.record.text, facets: post.record.facets))
-                            .font(.system(size: deck.settings.textSize.points))
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                        SelectablePostText(
+                            text: RichText.attributed(text: post.record.text, facets: post.record.facets),
+                            fontSize: deck.settings.textSize.points,
+                            onTap: { onOpenThread(post) },
+                            menuEntries: { menuEntries },
+                            onOpenLink: { openURL($0) }
+                        )
                     }
                     if let embed = post.embed {
                         if case .warn(let label) = moderation, !showsCoveredMedia {
@@ -127,8 +143,9 @@ struct PostRow: View {
                             .buttonStyle(.plain)
                             .padding(.top, 2)
                         } else {
-                            EmbedView(embed: embed, parent: post)
+                                EmbedView(embed: embed, parent: post)
                                 .padding(.top, 2)
+                                .environment(\.postTap, PostTapAction { onOpenThread(post) })
                         }
                     }
                     actionBar
@@ -242,40 +259,51 @@ struct PostRow: View {
         .padding(.top, 2)
     }
 
-    @ViewBuilder
     private var contextItems: some View {
-        PersonMenuItems(person: post.author)
-        Divider()
-        Button(tr("Thread öffnen", "Open Thread")) { onOpenThread(post) }
-        Button(tr("Reaktionen anzeigen", "Show Reactions")) { openReactions(post) }
+        PostMenuItems(entries: menuEntries)
+    }
+
+    /// One list for both menus: the one on the post and the one on its selectable text.
+    private var menuEntries: [PostMenuEntry] {
+        let post = post
+        let accountDID = accountDID
+        let deck = deck
+        let update = onUpdate
+        var entries = deck.personMenuEntries(person: post.author, accountDID: accountDID, openProfile: openProfile)
+        entries.append(.separator)
+        entries.append(PostMenuEntry(title: tr("Thread öffnen", "Open Thread")) { onOpenThread(post) })
+        entries.append(PostMenuEntry(title: tr("Reaktionen anzeigen", "Show Reactions")) { openReactions(post) })
         if let url = post.webURL {
-            Button(tr("Im Browser öffnen", "Open in Browser")) { openURL(url) }
-            Button(tr("Link kopieren", "Copy Link")) { deck.copy(url.absoluteString) }
+            entries.append(PostMenuEntry(title: tr("Im Browser öffnen", "Open in Browser")) { openURL(url) })
+            entries.append(PostMenuEntry(title: tr("Link kopieren", "Copy Link")) { deck.copy(url.absoluteString) })
         }
-        Button(tr("Text kopieren", "Copy Text")) { deck.copy(post.record.text) }
+        entries.append(PostMenuEntry(title: tr("Text kopieren", "Copy Text")) { deck.copy(post.record.text) })
         if #available(macOS 14.4, *), !post.record.text.isEmpty {
-            Button(tr("Übersetzen", "Translate")) { isTranslating = true }
+            entries.append(PostMenuEntry(title: tr("Übersetzen", "Translate")) { isTranslating = true })
         }
-        Button(post.viewer?.bookmarked == true ? tr("Lesezeichen entfernen", "Remove Bookmark") : tr("Als Lesezeichen speichern", "Save as Bookmark")) {
-            Task { await deck.toggleBookmark(post, accountDID: accountDID, update: onUpdate) }
-        }
-        ForEach(hashtags, id: \.self) { tag in
-            Button(deck.isFavorite(.search(query: "#\(tag)"))
+        entries.append(PostMenuEntry(title: post.viewer?.bookmarked == true ? tr("Lesezeichen entfernen", "Remove Bookmark") : tr("Als Lesezeichen speichern", "Save as Bookmark")) {
+            Task { await deck.toggleBookmark(post, accountDID: accountDID, update: update) }
+        })
+        for tag in hashtags {
+            let kind = ColumnKind.search(query: "#\(tag)")
+            let isFavorite = deck.isFavorite(kind)
+            entries.append(PostMenuEntry(title: isFavorite
                 ? tr("#\(tag) aus Favoriten entfernen", "Remove #\(tag) from Favorites")
                 : tr("#\(tag) zu Favoriten hinzufügen", "Add #\(tag) to Favorites")) {
-                if deck.isFavorite(.search(query: "#\(tag)")) {
-                    deck.removeFavorite(kind: .search(query: "#\(tag)"))
+                if isFavorite {
+                    deck.removeFavorite(kind: kind)
                 } else {
-                    deck.addFavorite(kind: .search(query: "#\(tag)"), title: "#\(tag)")
+                    deck.addFavorite(kind: kind, title: "#\(tag)")
                 }
-            }
+            })
         }
         if deck.isOwnPost(post) {
-            Divider()
-            Button(tr("Post löschen …", "Delete Post…"), role: .destructive) {
+            entries.append(.separator)
+            entries.append(PostMenuEntry(title: tr("Post löschen …", "Delete Post…"), isDestructive: true) {
                 deck.confirmation = .deletePost(post)
-            }
+            })
         }
+        return entries
     }
 
     /// The hashtags in this post, each once, without letting a long list swamp the menu.
@@ -309,12 +337,13 @@ struct PostRow: View {
         }
         .font(.caption)
         .foregroundStyle(tint ?? .secondary)
-        .frame(minWidth: 36, minHeight: 20, alignment: .leading)
+        .frame(minWidth: 36, minHeight: 24, alignment: .leading)
         .contentShape(Rectangle())
     }
 }
 
 struct NotificationRow: View {
+    @Environment(DeckStore.self) private var deck
     @Environment(\.openProfile) private var openProfile
     let item: NotificationItem
     let accountDID: String?
@@ -341,11 +370,15 @@ struct NotificationRow: View {
                     (Text(item.raw.author.bestName).fontWeight(.semibold) + Text(" \(item.raw.summary)"))
                         .font(.subheadline)
                     if let post = item.post {
-                        Text(post.record.text)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(3)
-                            .textSelection(.enabled)
+                        SelectablePostText(
+                            text: AttributedString(post.record.text),
+                            fontSize: 11,
+                            color: .secondaryLabelColor,
+                            maxLines: 3,
+                            onTap: { onOpenThread(post) },
+                            menuEntries: { deck.personMenuEntries(person: item.raw.author, accountDID: accountDID, openProfile: openProfile) },
+                            onOpenLink: { _ in }
+                        )
                     }
                 }
                 Spacer(minLength: 0)

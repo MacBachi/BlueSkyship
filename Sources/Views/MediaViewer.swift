@@ -18,7 +18,7 @@ struct MediaViewer: View {
             case .images(let images, let index):
                 imagePage(images, index: index)
             case .video(let video, _):
-                VideoStage(video: video)
+                VideoStage(video: video, onFinished: close)
                     .padding(48)
             }
 
@@ -122,7 +122,10 @@ struct MediaViewer: View {
 /// Bluesky serves video as HLS, which AVPlayer plays natively.
 private struct VideoStage: View {
     let video: VideoEmbed
+    let onFinished: () -> Void
     @State private var player: AVQueuePlayer?
+    /// Kept here, because a queue player may already have let go of an item when it reports its end.
+    @State private var item: AVPlayerItem?
     /// Has to stay alive for as long as a clip should keep looping.
     @State private var looper: AVPlayerLooper?
 
@@ -140,6 +143,7 @@ private struct VideoStage: View {
         .onAppear {
             guard player == nil, let url = URL(string: video.playlist) else { return }
             let item = AVPlayerItem(url: url)
+            self.item = item
             let newPlayer = AVQueuePlayer(playerItem: item)
             if video.isGIF {
                 newPlayer.isMuted = true
@@ -151,6 +155,11 @@ private struct VideoStage: View {
         .onDisappear {
             player?.pause()
             looper = nil
+        }
+        // A silent loop never really ends, so only a normal video closes the viewer.
+        .onReceive(NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification)) { note in
+            guard !video.isGIF, let ended = note.object as? AVPlayerItem, ended === item else { return }
+            onFinished()
         }
     }
 }

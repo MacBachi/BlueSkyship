@@ -1,7 +1,9 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
 import Testing
+import SwiftUI
 import UniformTypeIdentifiers
 @testable import BlueSkyship
 
@@ -861,6 +863,158 @@ final class FakeCloudStore: CloudStore {
     }
 }
 
+@MainActor
+@Suite struct SelectablePostTextTests {
+    @Test func onlyAClickThatDidNothingElseOpensTheThread() {
+        #expect(PostTextView.isPlainClick(clickCount: 1, selectionLength: 0, hadSelection: false, clickedLink: false))
+        // Dragging or double-clicking selected text.
+        #expect(!PostTextView.isPlainClick(clickCount: 1, selectionLength: 5, hadSelection: false, clickedLink: false))
+        #expect(!PostTextView.isPlainClick(clickCount: 2, selectionLength: 5, hadSelection: false, clickedLink: false))
+        // The click only cleared an earlier selection.
+        #expect(!PostTextView.isPlainClick(clickCount: 1, selectionLength: 0, hadSelection: true, clickedLink: false))
+        // A link has its own destination.
+        #expect(!PostTextView.isPlainClick(clickCount: 1, selectionLength: 0, hadSelection: false, clickedLink: true))
+    }
+
+    @Test func menuOffersCopyOnlyWithASelectionAndRunsItsEntries() throws {
+        var didRun = false
+        let entries = [
+            PostMenuEntry(title: "A") { didRun = true },
+            .separator,
+            PostMenuEntry(title: "B"),
+        ]
+        let plain = PostTextView.makeMenu(entries: entries, offersCopy: false)
+        #expect(plain.items.map(\.title) == ["A", "", "B"])
+        #expect(plain.items[1].isSeparatorItem)
+
+        let withCopy = PostTextView.makeMenu(entries: entries, offersCopy: true)
+        #expect(withCopy.items.count == 5)
+        #expect(withCopy.items[1].isSeparatorItem)
+        #expect(withCopy.items[0].action == #selector(NSText.copy(_:)))
+
+        let item = try #require(plain.items.first)
+        let target = try #require(item.target as? NSObject)
+        target.perform(item.action)
+        #expect(didRun)
+    }
+
+    @Test func textKeepsItsLinksAndHeightGrowsWithNarrowerWidth() throws {
+        let link = Facet(byteStart: 0, byteEnd: 4, feature: .link("https://example.com"))
+        let text = RichText.attributed(text: "link und noch sehr viel mehr Text, der irgendwann umbrechen muss", facets: [link])
+        let result = SelectablePostText.attributed(text, fontSize: 13, color: .labelColor)
+        let value = result.attribute(.link, at: 0, effectiveRange: nil)
+        #expect((value as? URL)?.absoluteString == "https://example.com")
+        #expect(result.attribute(.link, at: 6, effectiveRange: nil) == nil)
+        #expect(result.attribute(.font, at: 6, effectiveRange: nil) != nil)
+
+        let view = SelectablePostText(text: text, fontSize: 13, onOpenLink: { _ in })
+        let hosting = NSHostingView(rootView: view.environment(\.locale, Locale(identifier: "de")))
+        hosting.frame = CGRect(x: 0, y: 0, width: 120, height: 400)
+        let narrow = hosting.fittingSize
+        #expect(narrow.height > 0)
+        let wide = NSHostingView(rootView: view.frame(width: 600).fixedSize(horizontal: false, vertical: true))
+        wide.frame = CGRect(x: 0, y: 0, width: 600, height: 400)
+        #expect(wide.fittingSize.height > 0)
+    }
+}
+
+@MainActor
+@Suite struct SearchTests {
+    private func item(_ text: String, handle: String = "a.test", name: String = "Anna") throws -> ColumnItem {
+        let json = """
+        {"post":{"uri":"at://\(UUID().uuidString)","cid":"c","author":{"did":"d","handle":"\(handle)","displayName":"\(name)"},
+         "indexedAt":"2026-01-01T00:00:00Z","record":{"text":"\(text)"}}}
+        """
+        return .post(try JSONDecoder().decode(FeedViewPost.self, from: Data(json.utf8)))
+    }
+
+    @Test func matchesPartsOfWordsAuthorsAndAccents() throws {
+        let post = try item("Heute in Köln am Rhein", handle: "bert.example", name: "Bärbel")
+        #expect(post.matchesSearch("köl"))
+        #expect(post.matchesSearch("KOLN"))
+        #expect(post.matchesSearch("barb"))
+        #expect(post.matchesSearch("bert.exa"))
+        #expect(post.matchesSearch("rhein heute"))
+        #expect(!post.matchesSearch("rhein berlin"))
+        #expect(post.matchesSearch("   "))
+    }
+
+    private func client(pages: [[String]]) -> XRPCClient {
+        let bodies = pages.map { texts -> Data in
+            let feed = texts.map { #"{"post":{"uri":"at://\#($0)","cid":"c","author":{"did":"d","handle":"h"},"indexedAt":"2026-01-01T00:00:00Z","record":{"text":"\#($0)"}}}"# }
+            return Data(#"{"cursor":"next","feed":[\#(feed.joined(separator: ","))]}"#.utf8)
+        }
+        let responses = StubResponses(bodies.map { (200, $0) })
+        let host = "search-\(UUID().uuidString).test"
+        StubProtocol.register(host: host) { _ in responses.next() }
+        return XRPCClient(service: URL(string: "https://\(host)")!, transport: StubProtocol.session())
+    }
+
+    @Test func searchNarrowsTheColumnAndEndingItRestoresEverything() async throws {
+        let client = client(pages: [["apple", "banana"]])
+        let feed = ColumnFeed()
+        await feed.refresh(using: client, kind: .home)
+        feed.searchTerm = "app"
+        #expect(feed.isSearching)
+        #expect(feed.visibleItems.count == 1)
+        #expect(feed.items.count == 2)
+        feed.searchTerm = ""
+        #expect(feed.visibleItems.count == 2)
+    }
+
+    @Test func searchFetchesOlderPagesWhenTooLittleIsLoaded() async throws {
+        let client = client(pages: [["apple"], ["needle one"], ["needle two"]])
+        let feed = ColumnFeed()
+        await feed.refresh(using: client, kind: .home)
+        feed.searchTerm = "needle"
+        #expect(feed.visibleItems.isEmpty)
+        await feed.loadMore(using: client, kind: .home)
+        #expect(feed.visibleItems.count == 1)
+    }
+
+    @Test func resultStaysTemporaryUntilSavedOrPinned() throws {
+        let deck = DeckStore()
+        deck.showResult(kind: .search(query: "x"), title: "x")
+        #expect(deck.previewColumn?.kind == .search(query: "x"))
+        #expect(deck.favorites.isEmpty)
+        #expect(deck.columns.isEmpty)
+        deck.showResult(kind: .search(query: "y"), title: "y")
+        #expect(deck.previewColumn?.kind == .search(query: "y"))
+        deck.closeGlobalSearch()
+        #expect(deck.previewColumn == nil)
+        #expect(!deck.isShowingGlobalSearch)
+    }
+
+    @Test func atNameOpensAProfileWithoutNeedingAnAccount() {
+        let deck = DeckStore()
+        deck.searchBluesky(for: "@bsky.app")
+        #expect(deck.previewColumn?.kind == .profileTab(actor: "bsky.app", tab: .replies))
+        deck.closeFavoritePreview()
+        deck.searchBluesky(for: "")
+        #expect(deck.previewColumn == nil)
+    }
+
+    @Test func wordSearchWithoutAccountAsksToSignIn() {
+        let deck = DeckStore()
+        deck.searchBluesky(for: "swift")
+        #expect(deck.previewColumn == nil)
+        #expect(deck.isLoggingIn)
+    }
+
+    @Test func columnSearchGoesToTheFocusedColumnOrTheFirst() {
+        let deck = DeckStore()
+        let first = Column(kind: .search(query: "a"))
+        let second = Column(kind: .search(query: "b"))
+        deck.addColumn(first)
+        deck.addColumn(second)
+        deck.startColumnSearch()
+        #expect(deck.columnSearchRequest?.columnID == first.id)
+        deck.keyboardFocus = KeyboardFocus(columnID: second.id, itemID: "x")
+        deck.startColumnSearch()
+        #expect(deck.columnSearchRequest?.columnID == second.id)
+    }
+}
+
 @Suite struct LanguageTests {
     @Test func followsTheSystemAndFallsBackToEnglish() {
         #expect(Localizer.resolve(.system, systemLanguages: ["de-AT", "en-US"]) == .german)
@@ -921,6 +1075,7 @@ final class FakeCloudStore: CloudStore {
         deck.addFavorite(kind: .profileTab(actor: "a.test", tab: .replies), title: "A again")
         #expect(deck.favorites.count == 1)
         #expect(deck.isFavorite(.author(actor: "a.test")))
+        #expect(deck.isFavorite(.profileTab(actor: "a.test", tab: .replies)))
     }
 
     @Test func movingAColumnFreesTheDeckAndKeepsTheFavorite() {

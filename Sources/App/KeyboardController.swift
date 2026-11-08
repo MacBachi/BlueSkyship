@@ -12,16 +12,17 @@ final class KeyboardController {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak deck] event in
             let isHandled = MainActor.assumeIsolated {
                 guard let deck else { return false }
-                return Self.handle(event, deck: deck)
+                return Self.handle(event, deck: deck, window: NSApp.keyWindow)
             }
             return isHandled ? nil : event
         }
     }
 
-    private static func handle(_ event: NSEvent, deck: DeckStore) -> Bool {
+    static func handle(_ event: NSEvent, deck: DeckStore, window: NSWindow?) -> Bool {
         // Sheets, Settings and Help have their own key window and their own title.
-        guard let window = NSApp.keyWindow, window.title == "BlueSkyship" else { return false }
-        let isTyping = window.firstResponder is NSText
+        guard let window, window.title == "BlueSkyship" else { return false }
+        // Only an editable field counts: clicking into a post's selectable text must not switch off the keys.
+        let isTyping = (window.firstResponder as? NSTextView)?.isEditable == true
         let modifiers = event.modifierFlags.intersection([.command, .control, .option])
 
         if modifiers == .command, event.charactersIgnoringModifiers == "v", isTyping, deck.compose != nil {
