@@ -1,112 +1,105 @@
-# BlueSkyship
+<p align="center">
+  <img src="Branding/logo.png" alt="BlueSkyship logo" width="128">
+</p>
 
-Native macOS-App (SwiftUI, ohne Fremdabhängigkeiten) mit einem Spalten-Deck für Bluesky, im Stil von TweetDeck.
+<h1 align="center">BlueSkyship</h1>
 
-## Starten
+<p align="center">
+  A native macOS deck client for <a href="https://bsky.app">Bluesky</a>.<br>
+  Keep your timeline, searches, feeds and messages side by side, in columns.
+</p>
 
-Voraussetzung: Xcode und [XcodeGen](https://github.com/yonaskolb/XcodeGen). Das Xcode-Projekt wird aus `project.yml` erzeugt und nicht eingecheckt.
+<p align="center">
+  <a href="https://github.com/MacBachi/BlueSkyship/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MacBachi/BlueSkyship"></a>
+  <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"></a>
+  <img alt="macOS 14 or later" src="https://img.shields.io/badge/macOS-14%2B-lightgrey">
+  <a href="https://github.com/MacBachi/BlueSkyship/actions/workflows/secret-scan.yml"><img alt="Secret scan" src="https://github.com/MacBachi/BlueSkyship/actions/workflows/secret-scan.yml/badge.svg"></a>
+</p>
+
+![BlueSkyship with four columns, shown with made-up sample data](docs/screenshot.png)
+
+## Features
+
+- **Columns:** home, notifications, mentions, searches, profiles, feeds, lists, likes, bookmarks and direct messages. Move and resize them freely, and see at a glance which columns are out of view.
+- **Several decks:** switch between sets of columns with `⌘1` to `⌘9`.
+- **Filters per column:** only certain words, hide words or `@handles`, only posts with media, no reposts, no replies. Filters run locally.
+- **Favorites:** people, hashtags, searches, feeds and lists within reach, without taking up a column. Pin one when you want it to stay.
+- **Composer:** threads, drafts, scheduled posts, up to four images, video and reply rules. Images are downscaled and stripped of metadata such as the GPS location.
+- **Your own posts:** see everything you posted with reactions, and who liked, reposted or quoted it.
+- **Messages:** read, answer and start direct messages.
+- **Moderation:** mute, block, bookmark, translate and delete your own posts.
+- **Keyboard control:** `j` `k` to move, `l` to like, `r` to reply, `1`–`9` for columns, and more.
+- **Multiple accounts**, notifications on the Dock icon and optionally in macOS.
+- **iCloud sync** for favorites, decks and draft text.
+- **German and English**, following your system language or set by hand, with built-in help and a guided tour.
+- **Native:** SwiftUI, no third-party dependencies, no analytics.
+
+## Install
+
+Download the latest DMG from [Releases](https://github.com/MacBachi/BlueSkyship/releases/latest). It requires macOS 14 or later.
+
+## Sign in
+
+1. Create an [app password](https://bsky.app/settings/app-passwords). The app opens this page for you on first sign-in.
+2. Enter your name and the app password. `peter` is enough for `peter.bsky.social`. Your own domain and email addresses work too, and the app finds your server by itself.
+
+For direct messages, turn on **Allow access to your direct messages** when you create the app password.
+
+The password is used only to sign in and is never stored. Session tokens stay in the macOS Keychain. See [SECURITY.md](SECURITY.md).
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `⌘N` | New post |
+| `⌘↩` | Send post |
+| `⌘T` | Add column |
+| `⌘R` | Refresh all columns |
+| `⌘D` | Favorites |
+| `⌘F` | Search in a column |
+| `⌘⇧F` | Search all of Bluesky |
+| `⌘1`–`⌘9` | Switch deck |
+| `⌘,` | Settings |
+| `⌘?` | Help |
+
+## Known limitations
+
+- Scheduled posts are sent only while the app is running and the Mac is awake.
+- iCloud sync uses the last change for a whole list, so simultaneous edits on two Macs can overwrite each other. Sync between two Macs has not been verified yet.
+- There is no iPhone or iPad version.
+
+## Build from source
+
+You need Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The Xcode project is generated from `project.yml`.
 
 ```bash
+git clone https://github.com/MacBachi/BlueSkyship.git
+cd BlueSkyship
+git config core.hooksPath .githooks
 xcodegen generate
 open BlueSkyship.xcodeproj
 ```
 
-Tests:
+To sign with your own Apple Developer account, see [CONTRIBUTING.md](CONTRIBUTING.md). `scripts/release.sh` builds, signs and notarizes a DMG, and its first lines list what it needs.
 
-```bash
-xcodebuild test -project BlueSkyship.xcodeproj -scheme BlueSkyship -destination 'platform=macOS' -allowProvisioningUpdates
-```
+## Project layout
 
-## Eigenes Team
-
-`project.yml` enthält unter `DEVELOPMENT_TEAM` die Team-ID des Projekts. Wer selbst baut, trägt dort und in `scripts/release.sh` seine eigene ein. Eine Team-ID ist nicht geheim, sie steht in jeder signierten App.
-
-## Geheimnisse
-
-Tokens liegen nur im Schlüsselbund, Passwörter werden nie gespeichert. Damit auch nichts ins Repository gerät, einmal nach dem Klonen ausführen:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-Dann prüft `scripts/check-secrets.py` vor jedem Commit und vor jedem Push auf Tokens, App-Passwörter, private Schlüssel und Zertifikatsdateien. `gitleaks` läuft zusätzlich, falls installiert. Auf GitHub läuft dieselbe Prüfung über `.github/workflows/secret-scan.yml`.
-
-Bei einem nachweislichen Fehlalarm kommt `secret-scan:allow` als Kommentar in genau diese Zeile. Wurde ein echtes Geheimnis committet, reicht Löschen nicht: Es muss beim Anbieter ungültig gemacht werden.
-
-## App-Symbol
-
-Das Symbol entsteht aus `Branding/logo.png`:
-
-```bash
-swift scripts/make-icon.swift Branding/logo.png Sources/Resources/Assets.xcassets/AppIcon.appiconset
-```
-
-## Tests
-
-`Tests/UIDriveTests.swift` und `Tests/UIDriveMoreTests.swift` steuern das echte Fenster unsichtbar mit Maus- und Tastenereignissen gegen einen simulierten Server. Sie benutzen weder deine Maus noch dein Konto.
-
-Der Test `writeAllRecordsForValidation` schreibt die verschickten Datensätze in eine Datei. `scripts/validate-records.py <Lexikon-Ordner> <Datei>` prüft sie gegen die offiziellen Bluesky-Definitionen.
-
-## Aufbau
-
-| Ordner | Inhalt |
+| Folder | Contents |
 | --- | --- |
-| `Sources/ATProto` | XRPC-Client mit Token-Refresh, Datenmodelle, API-Aufrufe, Facets (UTF-8-Byte-Offsets) |
-| `Sources/Deck` | Spalten und deren Ladezustand, Konten (Tokens im Schlüsselbund), Aktionen |
-| `Sources/Views` | Deck-Fenster, Spalten, Posts, Einbettungen, Composer, Dialoge |
-| `Tests` | Unit-Tests mit gestubbtem Netzwerk |
+| `Sources/ATProto` | XRPC client with token refresh, data models, API calls, facets |
+| `Sources/Deck` | Columns and their loading state, accounts, actions, iCloud sync |
+| `Sources/Views` | Deck window, columns, posts, embeds, composer, dialogs, help |
+| `Tests` | Unit tests and invisible UI tests against a simulated server |
+| `scripts` | Release, app icon, record validation and secret checks |
 
-## Tastenkürzel
+## Contributing
 
-| Kürzel | Aktion |
-| --- | --- |
-| ⌘N | Neuer Post |
-| ⌘↩ | Post absenden |
-| ⌘T | Spalte hinzufügen |
-| ⌘R | Alle Spalten aktualisieren |
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and [TESTING.md](TESTING.md). Please report security problems as described in [SECURITY.md](SECURITY.md).
 
-## Personen, Medien und Einstellungen
+## License
 
-- **Meine Posts:** Klick auf dein Konto-Bild unten links. Zeigt alles, was du gepostet hast, mit genauem Datum und Zählern. Ein Klick auf die Zähler zeigt, wer geliked, repostet oder zitiert hat. Per Rechtsklick geht das bei jedem Post.
-- **Rechtsklick auf eine Person** (Post, Avatar, Repost-Hinweis, Zitat, Mitteilung): alle Posts der Person in einer neuen Spalte, oder ihr Profil.
-- **Klick auf den Avatar oder eine @Erwähnung** öffnet das Profil in derselben Spalte, mit Posts, Antworten, Medien und Folgen.
-- **Bilder und Videos** öffnen im Fenster. Esc schließt, die Pfeiltasten blättern.
-- **Composer:** bis zu vier Bilder per Button oder Drag & Drop. Sie werden verkleinert, Metadaten wie der GPS-Standort werden entfernt.
-- **Einstellungen (⌘,):** Aktualisierungsintervall, Breite neuer Spalten, Medienanzeige, Sprache neuer Posts, Konten.
+Copyright © 2026 MacBachi.
 
-## Sprache und Hilfe
+BlueSkyship is free software under the [GNU General Public License v3.0 or later](LICENSE). You may use, study, change and share it. If you distribute it or a modified version, you must make the source available under the same license.
 
-Die App zeigt sich auf Deutsch oder Englisch. Standard ist die Systemsprache (alles außer Deutsch wird Englisch), umstellen lässt sie sich unter Einstellungen (⌘,), ohne Neustart. Texte stehen als Paar im Code: `tr("Deutsch", "English")`. Die Hilfe (⌘?) enthält ein TL;DR, eine geführte Tour und Themen.
-
-## Favoriten
-
-Der Stern in der linken Leiste (⌘D) öffnet eine Liste mit Personen, Hashtags, Suchen, Feeds und Listen, die keine Spalte belegen. Ein Klick zeigt den Inhalt vorübergehend daneben, die Stecknadel heftet ihn dauerhaft als Spalte an. Hinzufügen geht per Eingabe (`@name`, `#tag`, Suchbegriff oder Bluesky-Link), per Rechtsklick auf eine Person oder über das Spaltenmenü. Favoriten liegen nur lokal auf diesem Mac.
-
-## Suchen
-
-Ganz Bluesky: Lupe links oder `⌘⇧F`. Eine Spalte: Lupe im Spaltenkopf oder `⌘F`.
-
-## Weitere Funktionen
-
-- **Threads, Entwürfe, Planen:** im Composer. Entwürfe sichern den Text beim Tippen. Geplante Posts sendet die App nur, solange sie läuft und der Mac wach ist.
-- **Mehrere Decks:** Stapel-Symbol links, `⌘1` bis `⌘9`.
-- **Tastatursteuerung:** `j` `k` `l` `t` `r` `q` `n` `a`, `1`–`9`, `←` `→`, `↩`, `Esc`. Lässt sich in den Einstellungen abschalten.
-- **Mitteilungen:** Zahl am Dock-Symbol, optional macOS-Hinweise. Gelesen wird nur auf ausdrücklichen Wunsch markiert.
-- **Direktnachrichten:** brauchen ein App-Passwort mit der Option „Allow access to your direct messages“.
-- **Moderation:** Stummschalten und Blockieren per Rechtsklick, eigene Posts löschen, Lesezeichen, Übersetzen.
-
-## iCloud
-
-Favoriten, Decks und Entwurfstexte werden über den iCloud-Schlüsselspeicher synchronisiert, Anmeldungen und Bilder nicht. Bei gleichzeitigen Änderungen auf zwei Macs gilt die spätere für die ganze Liste. Die Berechtigung steht in `BlueSkyship.entitlements`. Deshalb braucht jeder Build auf der Kommandozeile `-allowProvisioningUpdates`, damit Xcode das Profil holen kann.
-
-## Weitergabe
-
-`scripts/release.sh` baut, signiert, notarisiert und packt ein DMG. Voraussetzungen und Schritte stehen am Anfang des Skripts.
-
-## Spaltenfilter
-
-Jede Spalte lässt sich über das Filter-Symbol im Spaltenkopf einschränken: nur mit bestimmten Wörtern, Wörter oder `@handle` ausblenden, nur Posts mit Bild oder Video, ohne Reposts, ohne Antworten. Der Filter läuft nur lokal und wird mit der Spalte gespeichert.
-
-## Anmeldung
-
-Die Anmeldung läuft über ein App-Passwort aus den [Bluesky-Einstellungen](https://bsky.app/settings/app-passwords). Der Login-Dialog öffnet diese Seite beim ersten Aufruf nach dem App-Start automatisch im Browser, solange noch kein Konto angemeldet ist. Das Passwort wird nicht gespeichert, nur die Sitzungstoken im Schlüsselbund.
+BlueSkyship is an independent project and is not affiliated with or endorsed by Bluesky Social, PBC.

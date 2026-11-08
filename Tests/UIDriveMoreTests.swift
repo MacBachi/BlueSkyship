@@ -98,10 +98,10 @@ import Testing
         #expect(!inputs.contains { $0.stringValue.contains("bsky.social") })
         let name = try #require(inputs.first)
         window.makeFirstResponder(name)
-        try #require(name.currentEditor() as? NSTextView).insertText("MacBachi", replacementRange: NSRange(location: 0, length: 0))
+        try #require(name.currentEditor() as? NSTextView).insertText("Peter", replacementRange: NSRange(location: 0, length: 0))
         try await Task.sleep(for: .seconds(0.4))
 
-        #expect(name.stringValue == "MacBachi")
+        #expect(name.stringValue == "Peter")
     }
 
     // MARK: Menus on text in quotes and notifications
