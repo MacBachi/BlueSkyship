@@ -236,6 +236,7 @@ import UniformTypeIdentifiers
     @Test func chatGoesThroughTheProxyAndOtherCallsDoNot() async throws {
         let headers = RequestLog()
         let client = client { request in
+            if request.url?.lastPathComponent == "com.atproto.repo.describeRepo" { return (404, Data()) }
             headers.append(request.url?.lastPathComponent ?? "", Data((request.value(forHTTPHeaderField: "atproto-proxy") ?? "").utf8))
             return (200, Data(#"{"convos":[{"id":"1","rev":"r","muted":false,"unreadCount":2,"members":[{"did":"did:me","handle":"me"},{"did":"did:x","handle":"x"}],"lastMessage":{"$type":"chat.bsky.convo.defs#deletedMessageView","id":"m","rev":"r","sender":{"did":"did:x"},"sentAt":"2026-01-01T00:00:00Z"}}],"count":1}"#.utf8))
         }
@@ -767,6 +768,7 @@ final class FakeCloudStore: CloudStore {
         let log = RequestLog()
         let client = client(host: "chat-\(UUID().uuidString).test") { request in
             let proxy = request.value(forHTTPHeaderField: "atproto-proxy") ?? ""
+            if request.url?.lastPathComponent == "com.atproto.repo.describeRepo" { return (404, Data()) }
             log.append("\(request.url?.lastPathComponent ?? "")|\(proxy)", StubProtocol.body(of: request))
             if request.url?.lastPathComponent == "chat.bsky.convo.getConvoForMembers" {
                 return (200, Data(#"{"convo":{"id":"1","rev":"r","muted":false,"unreadCount":0,"members":[{"did":"did:me","handle":"me"},{"did":"did:x","handle":"x"}]}}"#.utf8))
@@ -1012,6 +1014,156 @@ final class FakeCloudStore: CloudStore {
         deck.keyboardFocus = KeyboardFocus(columnID: second.id, itemID: "x")
         deck.startColumnSearch()
         #expect(deck.columnSearchRequest?.columnID == second.id)
+    }
+}
+
+@Suite struct ChatRoutingTests {
+    private let session = Session(did: "did:plc:me", handle: "me.test", accessJwt: "a", refreshJwt: "r", service: URL(string: "https://x.test")!)
+
+    private func hosts(describeRepo: @escaping @Sendable (String) -> (Int, Data)) -> (entry: String, home: String, client: XRPCClient) {
+        let entry = "entry-\(UUID().uuidString).test"
+        let home = "home-\(UUID().uuidString).test"
+        let conversations = Data(#"{"convos":[{"id":"from-entry","rev":"r","muted":false,"unreadCount":0,"members":[]}]}"#.utf8)
+        StubProtocol.register(host: entry) { request in
+            switch request.url?.lastPathComponent {
+            case "com.atproto.repo.describeRepo": return describeRepo(home)
+            case "chat.bsky.convo.listConvos": return (200, conversations)
+            default: return (200, Data(#"{"count":3}"#.utf8))
+            }
+        }
+        StubProtocol.register(host: home) { request in
+            guard request.value(forHTTPHeaderField: "atproto-proxy") == "did:web:api.bsky.chat#bsky_chat",
+                  request.value(forHTTPHeaderField: "Authorization") == "Bearer a" else { return (400, Data()) }
+            return (200, Data(#"{"convos":[{"id":"from-home","rev":"r","muted":false,"unreadCount":0,"members":[]}]}"#.utf8))
+        }
+        return (entry, home, XRPCClient(service: URL(string: "https://\(entry)")!, session: session, transport: StubProtocol.session()))
+    }
+
+    @Test func chatGoesToTheServerTheAccountLivesOn() async throws {
+        let (_, _, client) = hosts { home in
+            (200, Data(##"{"didDoc":{"service":[{"id":"#atproto_pds","type":"AtprotoPersonalDataServer","serviceEndpoint":"https://\##(home)"}]}}"##.utf8))
+        }
+        #expect(try await client.conversations().conversations.map(\.id) == ["from-home"])
+        #expect(try await client.unreadNotificationCount() == 3, "everything else stays on the sign-in address")
+    }
+
+    @Test func withoutThatServerChatStaysOnTheSignInAddress() async throws {
+        let (_, _, unknown) = hosts { _ in (500, Data()) }
+        #expect(try await unknown.conversations().conversations.map(\.id) == ["from-entry"])
+        let (_, _, insecure) = hosts { home in
+            (200, Data(##"{"didDoc":{"service":[{"id":"#atproto_pds","serviceEndpoint":"http://\##(home)"}]}}"##.utf8))
+        }
+        #expect(try await insecure.conversations().conversations.map(\.id) == ["from-entry"], "the token never travels unencrypted")
+    }
+
+    @Test func onlyAPermissionErrorBlamesThePermission() {
+        #expect(XRPCError(status: 400, code: "InvalidToken", message: "Bad token scope").isMissingChatPermission)
+        #expect(XRPCError(status: 400, code: "InvalidToken", message: "Bad token method").isMissingChatPermission)
+        #expect(!XRPCError(status: 502, code: "UpstreamFailure", message: "pipethrough network error").isMissingChatPermission)
+        #expect(XRPCError(status: 502, code: "UpstreamFailure", message: "down").diagnostic == "HTTP 502 · UpstreamFailure · down")
+    }
+
+    private func answering(_ body: String) -> XRPCClient {
+        let host = "chat-\(UUID().uuidString).test"
+        StubProtocol.register(host: host) { request in
+            request.url?.lastPathComponent == "chat.bsky.convo.listConvos" ? (200, Data(body.utf8)) : (404, Data())
+        }
+        return XRPCClient(service: URL(string: "https://\(host)")!, session: session, transport: StubProtocol.session())
+    }
+
+    @Test func unreadableConversationsAreReportedInsteadOfLookingEmpty() async throws {
+        let unreadable = answering(#"{"convos":[{"id":1},{"members":[]}]}"#)
+        await #expect(throws: XRPCError.self) { _ = try await unreadable.conversations() }
+        #expect(try await answering(#"{"convos":[]}"#).conversations().conversations.isEmpty)
+    }
+
+    @Test func everyKindOfConversationFromTheOfficialFormatIsRead() async throws {
+        let client = answering(##"{"convos":[{"id":"c","rev":"r","muted":true,"status":"accepted","unreadCount":2,"members":[{"did":"did:plc:a","handle":"a.test","chatDisabled":true,"associated":{"chat":{"allowIncoming":"all"}},"viewer":{"muted":false,"blocking":"at://x"},"labels":[],"verification":{"verifications":[],"verifiedStatus":"none","trustedVerifierStatus":"none"}}],"lastMessage":{"$type":"chat.bsky.convo.defs#deletedMessageView","id":"m","rev":"r","sender":{"did":"did:plc:a"},"sentAt":"2026-01-01T00:00:00Z"},"lastReaction":{"$type":"chat.bsky.convo.defs#messageAndReactionView"}}]}"##)
+        let conversation = try #require(try await client.conversations().conversations.first)
+        #expect(conversation.unreadCount == 2)
+        #expect(conversation.lastMessage?.text == nil)
+    }
+}
+
+@Suite struct LoginIdentifierTests {
+    @Test func aShortNameIsEnough() {
+        #expect(LoginIdentifier.normalized("peter") == "peter.bsky.social")
+        #expect(LoginIdentifier.normalized("  @Peter ") == "peter.bsky.social")
+        #expect(LoginIdentifier.normalized("peter.bsky.social") == "peter.bsky.social")
+        #expect(LoginIdentifier.normalized("@peter.example.at") == "peter.example.at")
+        #expect(LoginIdentifier.normalized("https://bsky.app/profile/peter.bsky.social") == "peter.bsky.social")
+    }
+
+    @Test func emailsAndIdentifiersStayUntouched() {
+        #expect(LoginIdentifier.normalized("Max.Muster@Example.at") == "Max.Muster@Example.at")
+        #expect(LoginIdentifier.normalized("did:plc:abc") == "did:plc:abc")
+        #expect(LoginIdentifier.normalized("   ").isEmpty)
+    }
+
+    private func client(pds: String?, resolves: Bool = true) -> (XRPCClient, URL) {
+        let host = "login-\(UUID().uuidString).test"
+        let directoryHost = "plc-\(UUID().uuidString).test"
+        StubProtocol.register(host: host) { _ in
+            resolves ? (200, Data(#"{"did":"did:plc:abc"}"#.utf8)) : (400, Data(#"{"error":"InvalidRequest"}"#.utf8))
+        }
+        StubProtocol.register(host: directoryHost) { _ in
+            guard let pds else { return (404, Data()) }
+            return (200, Data(##"{"service":[{"id":"#atproto_pds","type":"AtprotoPersonalDataServer","serviceEndpoint":"\##(pds)"}]}"##.utf8))
+        }
+        return (
+            XRPCClient(service: URL(string: "https://\(host)")!, transport: StubProtocol.session()),
+            URL(string: "https://\(directoryHost)")!
+        )
+    }
+
+    @Test func findsTheServerOfAnAccount() async {
+        let (own, ownDirectory) = client(pds: "https://pds.example.at")
+        #expect(await LoginIdentifier.service(for: "peter.example.at", using: own, directory: ownDirectory).absoluteString == "https://pds.example.at")
+
+        let (hosted, hostedDirectory) = client(pds: "https://morel.us-east.host.bsky.network")
+        #expect(await LoginIdentifier.service(for: "peter.example.at", using: hosted, directory: hostedDirectory) == LoginIdentifier.defaultService)
+    }
+
+    @Test func anythingUnclearUsesTheMainServer() async {
+        let (client, directory) = client(pds: nil)
+        #expect(await LoginIdentifier.service(for: "a@b.at", using: client, directory: directory) == LoginIdentifier.defaultService)
+        #expect(await LoginIdentifier.service(for: "a.bsky.social", using: client, directory: directory) == LoginIdentifier.defaultService)
+        #expect(await LoginIdentifier.service(for: "a.example.at", using: client, directory: directory) == LoginIdentifier.defaultService)
+        let (unknown, unknownDirectory) = self.client(pds: "https://x.test", resolves: false)
+        #expect(await LoginIdentifier.service(for: "a.example.at", using: unknown, directory: unknownDirectory) == LoginIdentifier.defaultService)
+    }
+}
+
+/// Tests share their container with the real app. Signing out in a test once replaced the real list of accounts.
+@MainActor
+@Suite struct RealDataProtectionTests {
+    @Test func testsCannotChangeWhatTheRealAppStores() async throws {
+        let defaults = UserDefaults.standard
+        let keys = ["accounts.v1", "deck.pages.v1", "deck.favorites.v1", "deck.drafts.v1", "deck.activePage.v1", "settings.refreshSeconds", "settings.iCloudSync", "NSWindow Frame main"]
+        let before = keys.map { defaults.object(forKey: $0) as? NSObject }
+
+        let deck = DeckStore()
+        #expect(deck.accounts.accounts.isEmpty, "a test must not load the real accounts")
+        let client = XRPCClient(service: URL(string: "https://nowhere.invalid")!)
+        deck.accounts.installForTesting(Account(did: "did:plc:guard", handle: "guard.test"), client: client)
+        deck.addColumn(Column(kind: .home, accountDID: "did:plc:guard"))
+        deck.addFavorite(kind: .search(query: "x"), title: "x")
+        deck.saveDraft(id: UUID(), segments: ["x"], context: ComposeContext(accountDID: "did:plc:guard"))
+        deck.addDeck(name: "x")
+        deck.settings.refreshSeconds = 5
+        deck.settings.iCloudSync = false
+        await deck.accounts.refreshDetails()
+        await deck.logout(did: "did:plc:guard")
+
+        let after = keys.map { defaults.object(forKey: $0) as? NSObject }
+        #expect(before == after)
+        deck.settings.refreshSeconds = 60
+        deck.settings.iCloudSync = true
+    }
+
+    @Test func theRealInterfaceStaysOffDuringTests() {
+        #expect(!NSApp.windows.contains { $0.frameAutosaveName == "main" || $0.identifier?.rawValue == "main" })
+        #expect(NSApp.activationPolicy() == .accessory)
     }
 }
 

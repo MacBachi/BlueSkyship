@@ -26,6 +26,17 @@ struct XRPCError: LocalizedError, Sendable {
     var isExpiredToken: Bool {
         code == "ExpiredToken" || status == 401
     }
+
+    /// The server's words for an app password without the direct messages permission.
+    var isMissingChatPermission: Bool {
+        let text = message?.lowercased() ?? ""
+        return text.contains("token scope") || text.contains("token method")
+    }
+
+    /// Exactly what the server said, for places where the cause matters.
+    var diagnostic: String {
+        ["HTTP \(status)", code, message].compactMap { $0 }.joined(separator: " · ")
+    }
 }
 
 /// Minimal XRPC transport. Handles bearer auth and refreshes an expired session exactly once,
@@ -38,6 +49,7 @@ actor XRPCClient {
     private let transport: URLSession
     private let onSessionChange: @Sendable (Session) -> Void
     private var refreshTask: Task<Session, any Error>?
+    private var accountServer: URL?
 
     init(
         service: URL,
@@ -189,11 +201,37 @@ actor XRPCClient {
         return updated
     }
 
+    /// Chat goes to the server the account lives on, as in Bluesky's own app, which may not be the
+    /// address used to sign in. If that server cannot be found, the sign-in address remains the best guess.
+    private func chatServer() async -> URL {
+        if let accountServer { return accountServer }
+        struct RepoInfo: Decodable {
+            struct DidDoc: Decodable {
+                struct Service: Decodable {
+                    let id: String
+                    let serviceEndpoint: String
+                }
+                let service: [Service]
+            }
+            let didDoc: DidDoc
+        }
+        guard let did = session?.did,
+              let (data, status) = try? await perform(
+                  method: "GET", nsid: "com.atproto.repo.describeRepo", query: [("repo", did)], body: nil, bearer: nil
+              ), status == 200,
+              let info = try? JSONDecoder().decode(RepoInfo.self, from: data),
+              let endpoint = info.didDoc.service.first(where: { $0.id.hasSuffix("#atproto_pds") })?.serviceEndpoint,
+              let url = URL(string: endpoint), url.scheme == "https", url.host != nil else { return service }
+        accountServer = url
+        return url
+    }
+
     private func perform(
         method: String, nsid: String, query: [(String, String?)], body: Data?, bearer: String?,
         contentType: String = "application/json"
     ) async throws -> (Data, Int) {
-        var request = URLRequest(url: try Self.url(service: service, nsid: nsid, query: query))
+        let target = nsid.hasPrefix("chat.bsky.") ? await chatServer() : service
+        var request = URLRequest(url: try Self.url(service: target, nsid: nsid, query: query))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }

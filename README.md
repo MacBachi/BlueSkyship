@@ -17,6 +17,22 @@ Tests:
 xcodebuild test -project BlueSkyship.xcodeproj -scheme BlueSkyship -destination 'platform=macOS' -allowProvisioningUpdates
 ```
 
+## Eigenes Team
+
+`project.yml` enthält unter `DEVELOPMENT_TEAM` die Team-ID des Projekts. Wer selbst baut, trägt dort und in `scripts/release.sh` seine eigene ein. Eine Team-ID ist nicht geheim, sie steht in jeder signierten App.
+
+## Geheimnisse
+
+Tokens liegen nur im Schlüsselbund, Passwörter werden nie gespeichert. Damit auch nichts ins Repository gerät, einmal nach dem Klonen ausführen:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Dann prüft `scripts/check-secrets.py` vor jedem Commit und vor jedem Push auf Tokens, App-Passwörter, private Schlüssel und Zertifikatsdateien. `gitleaks` läuft zusätzlich, falls installiert. Auf GitHub läuft dieselbe Prüfung über `.github/workflows/secret-scan.yml`.
+
+Bei einem nachweislichen Fehlalarm kommt `secret-scan:allow` als Kommentar in genau diese Zeile. Wurde ein echtes Geheimnis committet, reicht Löschen nicht: Es muss beim Anbieter ungültig gemacht werden.
+
 ## App-Symbol
 
 Das Symbol entsteht aus `Branding/logo.png`:

@@ -7,6 +7,7 @@ enum SessionKeychain {
     private static let service = "dev.blueskyship.session"
 
     static func save(_ session: Session) {
+        guard !RuntimeEnvironment.isUnitTestHost else { return }
         guard let data = try? JSONEncoder().encode(session) else { return }
         let query = baseQuery(did: session.did)
         SecItemDelete(query as CFDictionary)
@@ -27,6 +28,7 @@ enum SessionKeychain {
     }
 
     static func delete(did: String) {
+        guard !RuntimeEnvironment.isUnitTestHost else { return }
         SecItemDelete(baseQuery(did: did) as CFDictionary)
     }
 
@@ -100,6 +102,19 @@ final class AccountStore {
         return account
     }
 
+    /// Keeps name and picture current, and fills them in where only the handle is known.
+    func refreshDetails() async {
+        for account in accounts {
+            guard let client = clients[account.did],
+                  let profile = try? await client.profile(actor: account.did),
+                  let index = accounts.firstIndex(where: { $0.did == account.did }) else { continue }
+            accounts[index].handle = profile.handle
+            accounts[index].displayName = profile.displayName
+            accounts[index].avatar = profile.avatar
+        }
+        persist()
+    }
+
     func logout(did: String) async {
         if let client = clients[did] {
             // Best effort: the local sign-out must succeed even when offline.
@@ -111,7 +126,9 @@ final class AccountStore {
         persist()
     }
 
+    /// Tests run in the same container as the real app, and must never replace its list of accounts.
     private func persist() {
+        guard !RuntimeEnvironment.isUnitTestHost else { return }
         if let data = try? JSONEncoder().encode(accounts) {
             UserDefaults.standard.set(data, forKey: Self.defaultsKey)
         }

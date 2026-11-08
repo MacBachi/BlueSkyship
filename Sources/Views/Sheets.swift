@@ -8,7 +8,8 @@ struct LoginSheet: View {
     @State private var identifier = ""
     @State private var password = ""
     @State private var authFactorToken = ""
-    @State private var serviceText = "https://bsky.social"
+    @State private var serviceText = LoginIdentifier.defaultService.absoluteString
+    @State private var showsServer = false
     @State private var needsAuthFactor = false
     @State private var errorMessage: String?
     @State private var isWorking = false
@@ -17,12 +18,19 @@ struct LoginSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(tr("Bei Bluesky anmelden", "Sign in to Bluesky")).font(.title2.weight(.semibold))
             Form {
-                TextField(tr("Handle oder E-Mail", "Handle or email"), text: $identifier, prompt: Text("name.bsky.social"))
+                TextField(tr("Name oder E-Mail", "Name or email"), text: $identifier, prompt: Text(tr("Dein Bluesky-Name", "Your Bluesky name")))
+                if showsNormalizedName {
+                    Text(tr("Anmeldung als @\(normalizedIdentifier)", "Signing in as @\(normalizedIdentifier)"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 SecureField(tr("App-Passwort", "App password"), text: $password, prompt: Text("xxxx-xxxx-xxxx-xxxx"))
                 if needsAuthFactor {
                     TextField(tr("Code aus der E-Mail", "Code from the email"), text: $authFactorToken)
                 }
-                TextField("Server", text: $serviceText)
+                if showsServer {
+                    TextField("Server", text: $serviceText)
+                }
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text(tr("Bitte ein App-Passwort verwenden, nicht dein Hauptpasswort. Die App speichert nur die Sitzungstoken im Schlüsselbund, nie das Passwort.", "Please use an app password, not your main password. The app only stores session tokens in the Keychain, never the password."))
@@ -38,6 +46,12 @@ struct LoginSheet: View {
                 Text(errorMessage).font(.callout).foregroundStyle(.red)
             }
             HStack {
+                if !showsServer {
+                    Button(tr("Eigener Server …", "Own Server…")) { showsServer = true }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .help(tr("Nur nötig, wenn die automatische Erkennung deinen Server nicht findet.", "Only needed if automatic detection does not find your server."))
+                }
                 Spacer()
                 if isWorking { ProgressView().controlSize(.small) }
                 Button(tr("Abbrechen", "Cancel"), role: .cancel) { dismiss() }
@@ -50,15 +64,23 @@ struct LoginSheet: View {
         .padding(20)
         .frame(width: 440)
         .onAppear {
-            if deck.claimAutomaticAppPasswordsOpen() {
+            if !RuntimeEnvironment.isUnitTestHost, deck.claimAutomaticAppPasswordsOpen() {
                 openURL(DeckStore.appPasswordsURL)
             }
         }
     }
 
+    private var normalizedIdentifier: String { LoginIdentifier.normalized(identifier) }
+
+    /// Shows what a short name becomes, once there is something to show.
+    private var showsNormalizedName: Bool {
+        let typed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !typed.isEmpty && !typed.contains("@") && normalizedIdentifier != typed.lowercased()
+    }
+
     private func login() {
-        guard let service = URL(string: serviceText.trimmingCharacters(in: .whitespaces)),
-              service.scheme == "https", service.host != nil else {
+        let typedServer = serviceText.trimmingCharacters(in: .whitespaces)
+        guard let chosenServer = URL(string: typedServer), chosenServer.scheme == "https", chosenServer.host != nil else {
             errorMessage = tr("Der Server muss eine https-Adresse sein.", "The server must be an https address.")
             return
         }
@@ -67,9 +89,14 @@ struct LoginSheet: View {
         Task {
             defer { isWorking = false }
             let isFirstAccount = deck.accounts.accounts.isEmpty
+            let name = normalizedIdentifier
+            // A server someone typed in wins. Otherwise the app finds it by itself.
+            let service = chosenServer == LoginIdentifier.defaultService
+                ? await LoginIdentifier.service(for: name, using: deck.accounts.publicClient)
+                : chosenServer
             do {
                 let account = try await deck.accounts.login(
-                    identifier: identifier.trimmingCharacters(in: .whitespaces),
+                    identifier: name,
                     password: password,
                     authFactorToken: authFactorToken.isEmpty ? nil : authFactorToken,
                     service: service

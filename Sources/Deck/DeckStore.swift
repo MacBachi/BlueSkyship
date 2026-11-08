@@ -53,7 +53,10 @@ final class DeckStore {
     private static let discoverFeed = "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot"
 
     let accounts = AccountStore()
-    let settings = AppSettings()
+    // Tests run in the same container as the real app, and must not change its settings.
+    let settings = AppSettings(defaults: RuntimeEnvironment.isUnitTestHost
+        ? (UserDefaults(suiteName: "bluesky-ship-tests") ?? .standard)
+        : .standard)
 
     var decks: [DeckPage]
     var activeDeckID: UUID

@@ -3,3 +3,26 @@ build/
 DerivedData/
 *.xcodeproj/
 xcuserdata/
+
+# Signing material and credentials never belong here. scripts/check-secrets.py enforces the same list.
+*.p12
+*.pfx
+*.cer
+*.pem
+*.key
+*.p8
+*.keychain
+*.keychain-db
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+.env
+.env.*
+
+# Build results and local tools
+*.dmg
+*.xcarchive
+*.xcuserstate
+.claude/
+__pycache__/
+*.pyc

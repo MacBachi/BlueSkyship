@@ -1,0 +1,7 @@
+#!/bin/sh
+# Stops a commit that contains secrets. Installed with: git config core.hooksPath .githooks
+set -e
+python3 scripts/check-secrets.py --staged
+if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks git --staged --no-banner --redact --log-level warn
+fi

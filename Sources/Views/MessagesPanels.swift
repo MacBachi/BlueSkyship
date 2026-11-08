@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The list of chats. Chat needs an app password with its own permission, so failure explains that.
+/// The list of chats. Chat needs an app password with its own permission, but only blames that when
+/// the server does, and always shows what the server said.
 struct ConversationsPanel: View {
     @Environment(DeckStore.self) private var deck
     @Environment(\.openURL) private var openURL
@@ -9,20 +10,102 @@ struct ConversationsPanel: View {
 
     @State private var conversations: [Conversation] = []
     @State private var errorMessage: String?
+    @State private var lacksPermission = false
+    @State private var isWritingNew = false
+    @State private var personQuery = ""
+    @State private var isOpeningConversation = false
+    @FocusState private var personFieldHasFocus: Bool
     @State private var hasLoaded = false
 
     var body: some View {
+        VStack(spacing: 0) {
+            if errorMessage == nil {
+                newMessageBar
+                Divider()
+            }
+            content
+        }
+        .task(id: accountDID) {
+            while !Task.isCancelled {
+                await load()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var newMessageBar: some View {
+        if isWritingNew {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    TextField(tr("Name oder @Handle", "Name or @handle"), text: $personQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($personFieldHasFocus)
+                        .onExitCommand(perform: closeNewMessage)
+                    Button(tr("Abbrechen", "Cancel"), action: closeNewMessage)
+                }
+                PersonSuggestions(term: personQuery, excluding: accountDID, onPick: startConversation)
+            }
+            .padding(8)
+            .onAppear { personFieldHasFocus = true }
+        } else {
+            Button {
+                isWritingNew = true
+            } label: {
+                Label(tr("Neue Nachricht", "New Message"), systemImage: "square.and.pencil")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .help(tr("Eine Person suchen und anschreiben", "Find a person and write to them"))
+        }
+    }
+
+    private func closeNewMessage() {
+        isWritingNew = false
+        personQuery = ""
+    }
+
+    /// Opens the conversation. Nothing is sent until someone writes a message there.
+    private func startConversation(with person: Profile) {
+        guard !isOpeningConversation else { return }
+        isOpeningConversation = true
+        Task {
+            defer { isOpeningConversation = false }
+            guard let (conversation, _) = await deck.openConversation(with: person.did, accountDID: accountDID) else { return }
+            closeNewMessage()
+            onOpen(conversation)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         Group {
             if let errorMessage, conversations.isEmpty {
                 ContentUnavailableView {
-                    Label(tr("Kein Zugriff auf Direktnachrichten", "No access to direct messages"), systemImage: "envelope.badge.shield.half.filled")
+                    Label(
+                        lacksPermission
+                            ? tr("Kein Zugriff auf Direktnachrichten", "No access to direct messages")
+                            : tr("Direktnachrichten nicht geladen", "Direct messages not loaded"),
+                        systemImage: "envelope.badge.shield.half.filled"
+                    )
                 } description: {
-                    Text(tr(
-                        "Dein App-Passwort braucht die Option „Allow access to your direct messages“. Erstelle ein neues damit und melde dich erneut an.\n\n\(errorMessage)",
-                        "Your app password needs the option “Allow access to your direct messages”. Create a new one with it and sign in again.\n\n\(errorMessage)"
-                    ))
+                    VStack(spacing: 10) {
+                        if lacksPermission {
+                            Text(tr(
+                                "Dein App-Passwort braucht die Option „Allow access to your direct messages“. Erstelle ein neues damit und melde dich erneut an.",
+                                "Your app password needs the option “Allow access to your direct messages”. Create a new one with it and sign in again."
+                            ))
+                        }
+                        Text(errorMessage).font(.caption.monospaced()).textSelection(.enabled)
+                    }
                 } actions: {
-                    Button(tr("App-Passwörter öffnen", "Open App Passwords")) { openURL(DeckStore.appPasswordsURL) }
+                    Button(tr("Erneut versuchen", "Try Again")) { Task { await load() } }
+                    if lacksPermission {
+                        Button(tr("App-Passwörter öffnen", "Open App Passwords")) { openURL(DeckStore.appPasswordsURL) }
+                    }
                 }
             } else if conversations.isEmpty {
                 if hasLoaded {
@@ -42,12 +125,6 @@ struct ConversationsPanel: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: accountDID) {
-            while !Task.isCancelled {
-                await load()
-                try? await Task.sleep(for: .seconds(30))
-            }
-        }
     }
 
     private func row(_ conversation: Conversation) -> some View {
@@ -92,7 +169,11 @@ struct ConversationsPanel: View {
             return
         } catch let error as URLError where error.code == .cancelled {
             return
+        } catch let error as XRPCError {
+            lacksPermission = error.isMissingChatPermission
+            errorMessage = error.diagnostic
         } catch {
+            lacksPermission = false
             errorMessage = error.localizedDescription
         }
         hasLoaded = true

@@ -12,7 +12,9 @@ struct HelpView: View {
     @State private var page: Page? = .tldr
 
     var body: some View {
-        NavigationSplitView {
+        // A plain split on purpose: in a NavigationSplitView, the page stayed empty after switching to
+        // the tour, and text slid under the title bar.
+        HStack(spacing: 0) {
             List(selection: $page) {
                 Section {
                     Label("TL;DR", systemImage: "bolt").tag(Page.tldr)
@@ -24,20 +26,28 @@ struct HelpView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
-        } detail: {
-            switch page ?? .tldr {
-            case .tldr:
-                TLDRPage(startTour: { page = .tour })
-            case .tour:
-                TourPage()
-            case .topic(let id):
-                if let topic = HelpContent.topics.first(where: { $0.id == id }) {
-                    TopicPage(topic: topic)
-                }
-            }
+            .listStyle(.sidebar)
+            .frame(width: 220)
+            Divider()
+            detail
+                .id(page)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(tr("BlueSkyship-Hilfe", "BlueSkyship Help"))
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch page ?? .tldr {
+        case .tldr:
+            TLDRPage(startTour: { page = .tour })
+        case .tour:
+            TourPage()
+        case .topic(let id):
+            if let topic = HelpContent.topics.first(where: { $0.id == id }) {
+                TopicPage(topic: topic)
+            }
+        }
     }
 }
 
@@ -117,19 +127,23 @@ private struct TourPage: View {
     var body: some View {
         let step = steps[min(index, steps.count - 1)]
         VStack(alignment: .leading, spacing: 16) {
-            Text(tr("Schritt \(index + 1) von \(steps.count)", "Step \(index + 1) of \(steps.count)"))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-            ProgressView(value: Double(index + 1), total: Double(steps.count))
-                .accessibilityHidden(true)
-            Label(step.title, systemImage: step.icon)
-                .font(.title.weight(.bold))
-            HelpText(step.text)
-                .font(.title3)
-            if let demo = step.demo {
-                demoButton(demo)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(tr("Schritt \(index + 1) von \(steps.count)", "Step \(index + 1) of \(steps.count)"))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    ProgressView(value: Double(index + 1), total: Double(steps.count))
+                        .accessibilityHidden(true)
+                    Label(step.title, systemImage: step.icon)
+                        .font(.title.weight(.bold))
+                    HelpText(step.text)
+                        .font(.title3)
+                    if let demo = step.demo {
+                        demoButton(demo)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer()
             HStack {
                 Button(tr("Zurück", "Back")) { index -= 1 }
                     .disabled(index == 0)

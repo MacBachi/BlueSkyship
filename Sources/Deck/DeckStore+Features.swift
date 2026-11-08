@@ -295,6 +295,7 @@ extension DeckStore {
         guard !RuntimeEnvironment.isUnitTestHost else { return }
         loadScheduledPosts()
         startCloudSync()
+        await accounts.refreshDetails()
         var tick = 0
         while !Task.isCancelled {
             await sendDueScheduledPosts()

@@ -87,6 +87,8 @@ final class FakeBluesky: @unchecked Sendable {
             return (200, Data(#"{"feed":[\#(feed)]}"#.utf8))
         case "app.bsky.feed.getPosts":
             return (200, Data(#"{"posts":[\#(posts[0])]}"#.utf8))
+        case "chat.bsky.convo.getConvoForMembers":
+            return (200, Data(#"{"convo":{"id":"new","rev":"r","muted":false,"unreadCount":0,"members":[{"did":"\#(Self.viewerDID)","handle":"me.test"},{"did":"did:plc:nina","handle":"nina.test"}]}}"#.utf8))
         case "chat.bsky.convo.listConvos":
             return (200, Data(#"{"convos":[{"id":"c1","rev":"r","muted":false,"unreadCount":1,"members":[{"did":"\#(Self.viewerDID)","handle":"me.test"},{"did":"did:plc:bob","handle":"bob.test","displayName":"Bob"}],"lastMessage":{"$type":"chat.bsky.convo.defs#messageView","id":"m2","rev":"r","text":"Zweite Nachricht","sender":{"did":"did:plc:bob"},"sentAt":"2026-01-01T00:01:00Z"}}]}"#.utf8))
         case "chat.bsky.convo.getMessages":

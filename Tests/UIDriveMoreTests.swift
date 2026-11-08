@@ -13,6 +13,97 @@ import Testing
         )!
     }
 
+    // MARK: Help
+
+    /// Switching pages once left the help empty.
+    @Test func everyHelpPageShowsItsContentAfterAClick() async throws {
+        let deck = DeckStore()
+        let size = CGSize(width: 860, height: 640)
+        let hosting = NSHostingView(rootView: HelpView().environment(deck).frame(width: size.width, height: size.height))
+        let window = ActiveLookingWindow(
+            contentRect: CGRect(origin: CGPoint(x: -20_000, y: -20_000), size: size),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+
+        func page(_ name: String) throws -> NSBitmapImageRep {
+            let picture = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+            hosting.cacheDisplay(in: hosting.bounds, to: picture)
+            try #require(picture.representation(using: .png, properties: [:]))
+                .write(to: FileManager.default.temporaryDirectory.appending(path: "\(name).png"))
+            return picture
+        }
+        /// Dark pixels right of the sidebar: text, not an empty page.
+        func textPixels(_ picture: NSBitmapImageRep) -> Int {
+            var count = 0
+            for x in stride(from: picture.pixelsWide / 3, to: picture.pixelsWide, by: 3) {
+                for y in stride(from: 0, to: picture.pixelsHigh, by: 3) {
+                    if let color = picture.colorAt(x: x, y: y)?.usingColorSpace(.deviceGray), color.whiteComponent < 0.4 { count += 1 }
+                }
+            }
+            return count
+        }
+        func tables(_ view: NSView) -> [NSTableView] { ((view as? NSTableView).map { [$0] } ?? []) + view.subviews.flatMap(tables) }
+
+        try await Task.sleep(for: .seconds(0.6))
+        #expect(textPixels(try page("help-tldr")) > 200)
+        let table = try #require(tables(hosting).first)
+        let rows = (0..<table.numberOfRows).filter { table.rect(ofRow: $0).height > 25 }
+        #expect(rows.count == HelpContent.topics.count + 2)
+        for (position, row) in rows.enumerated() {
+            let rect = table.rect(ofRow: row)
+            let point = table.convert(CGPoint(x: rect.midX, y: rect.midY), to: nil)
+            func mouse(_ type: NSEvent.EventType) -> NSEvent {
+                NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+                )!
+            }
+            NSApp.postEvent(mouse(.leftMouseUp), atStart: false)
+            table.mouseDown(with: mouse(.leftMouseDown))
+            _ = NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true)
+            try await Task.sleep(for: .seconds(0.3))
+            #expect(table.selectedRow == row)
+            #expect(textPixels(try page("help-\(position)")) > 200, "page \(position) is empty")
+        }
+    }
+
+    // MARK: Sign-in
+
+    /// Never presses "Sign In": that would go to the real server.
+    @Test func aShortNameIsEnoughInTheSignInWindow() async throws {
+        let deck = DeckStore()
+        let size = CGSize(width: 480, height: 420)
+        let hosting = NSHostingView(rootView: LoginSheet().environment(deck).frame(width: size.width, height: size.height))
+        hosting.frame = CGRect(origin: .zero, size: size)
+        let window = ActiveLookingWindow(
+            contentRect: CGRect(origin: CGPoint(x: -20_000, y: -20_000), size: size),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .seconds(0.4))
+
+        func fields(_ view: NSView) -> [NSTextField] {
+            let own = (view as? NSTextField).map { $0.isEditable ? [$0] : [] } ?? []
+            return own + view.subviews.flatMap(fields)
+        }
+        let inputs = fields(hosting)
+        #expect(inputs.count == 2, "name and password, and no server unless someone asks for it")
+        #expect(!inputs.contains { $0.stringValue.contains("bsky.social") })
+        let name = try #require(inputs.first)
+        window.makeFirstResponder(name)
+        try #require(name.currentEditor() as? NSTextView).insertText("MacBachi", replacementRange: NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .seconds(0.4))
+
+        #expect(name.stringValue == "MacBachi")
+    }
+
     // MARK: Menus on text in quotes and notifications
 
     @Test func aQuoteOffersItsAuthorsMenuAndAClickOpensTheOuterThread() async throws {
@@ -40,6 +131,27 @@ import Testing
 
     // MARK: Direct messages
 
+    @Test func aNewMessageFindsAPersonAndOpensTheConversationWithoutSendingAnything() async throws {
+        let app = DeckHarness(size: CGSize(width: 800, height: 700))
+        defer { app.close() }
+        app.deck.addColumn(Column(kind: .messages, accountDID: FakeBluesky.viewerDID))
+        await app.settle(1)
+        await app.click(x: DeckHarness.Layout.columnLeft + 120, y: 71)
+        await app.settle(0.5)
+        app.screenshot("chat-new-1")
+        #expect(app.window.firstResponder is NSTextView, "the search field takes the focus")
+        app.type("ni")
+        await app.settle(1)
+        app.screenshot("chat-new-2")
+        #expect(app.server.readNames.contains("app.bsky.actor.searchActorsTypeahead"))
+        await app.click(x: DeckHarness.Layout.columnLeft + 100, y: 112)
+        await app.settle(1)
+        app.screenshot("chat-new-3")
+        #expect(app.server.readNames.contains("chat.bsky.convo.getConvoForMembers"))
+        #expect(app.server.readNames.contains("chat.bsky.convo.getMessages"), "the conversation is open")
+        #expect(!app.server.writeNames.contains("chat.bsky.convo.sendMessage"), "nothing goes out by itself")
+    }
+
     @Test func chatsOpenInOrderAndAnswersReachTheServerWithTheProxy() async throws {
         let app = DeckHarness(size: CGSize(width: 800, height: 700))
         defer { app.close() }
@@ -47,7 +159,7 @@ import Testing
         await app.settle(1)
         #expect(app.server.readNames.contains("chat.bsky.convo.listConvos"))
         // First row of the list, below the column header.
-        await app.click(x: DeckHarness.Layout.columnLeft + 120, y: 80)
+        await app.click(x: DeckHarness.Layout.columnLeft + 120, y: 116)
         await app.settle(1)
         #expect(app.server.readNames.contains("chat.bsky.convo.getMessages"))
         #expect(app.server.writeNames.contains("chat.bsky.convo.updateRead"), "opening marks it as read")

@@ -3,6 +3,8 @@ import Foundation
 /// Decodes an array and drops elements that fail, so one unexpected post cannot blank a whole column.
 struct LossyList<Element: Decodable>: Decodable {
     var values: [Element] = []
+    /// Entries that could not be read and were left out.
+    var skipped = 0
 
     private struct Skip: Decodable {}
 
@@ -13,6 +15,7 @@ struct LossyList<Element: Decodable>: Decodable {
                 values.append(value)
             } else {
                 _ = try? container.decode(Skip.self)
+                skipped += 1
             }
         }
     }

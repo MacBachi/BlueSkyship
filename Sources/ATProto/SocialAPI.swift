@@ -138,6 +138,13 @@ extension XRPCClient {
         let response: Response = try await get(
             "chat.bsky.convo.listConvos", query: [("limit", "50"), ("cursor", cursor)]
         )
+        // Showing "no conversations" here would be false.
+        if response.convos.values.isEmpty, response.convos.skipped > 0 {
+            throw XRPCError(
+                status: 200, code: "UnreadableConversations",
+                message: tr("\(response.convos.skipped) Unterhaltungen konnten nicht gelesen werden.", "Could not read \(response.convos.skipped) conversations.")
+            )
+        }
         return (response.convos.values, response.cursor)
     }
 

@@ -105,6 +105,8 @@ struct PeoplePanel: View {
 struct PersonSuggestions: View {
     @Environment(DeckStore.self) private var deck
     let term: String
+    /// Someone who makes no sense as a result here, such as the signed-in account when writing a message.
+    var excluding: String?
     let onPick: (Profile) -> Void
 
     @State private var people: [Profile] = []
@@ -115,7 +117,7 @@ struct PersonSuggestions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(people) { person in
+            ForEach(people.filter { $0.did != excluding }) { person in
                 Button {
                     onPick(person)
                 } label: {

@@ -1,6 +1,5 @@
 import SwiftUI
 
-@main
 struct BlueSkyshipApp: App {
     @State private var deck = DeckStore()
     private let localizer = Localizer.shared

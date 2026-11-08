@@ -116,6 +116,7 @@ enum HelpContent {
         [
             HelpTopic(id: "start", icon: "person.badge.key", title: tr("Anmelden", "Signing in"), bullets: [
                 tr("Du meldest dich mit einem **App-Passwort** an, nicht mit deinem Hauptpasswort. Du erstellst es unter [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords).", "You sign in with an **app password**, not your main password. Create one at [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords)."),
+                tr("Es reicht dein Name: Aus `peter` wird `peter.bsky.social`. Eigene Domains und E-Mail-Adressen gehen auch, den Server findet die App selbst.", "Your name is enough: `peter` becomes `peter.bsky.social`. Your own domain and email addresses work too, and the app finds the server by itself."),
                 tr("Der Login öffnet diese Seite automatisch, solange noch kein Konto angemeldet ist.", "Sign-in opens that page automatically while no account is signed in yet."),
                 tr("Ohne Konto kannst du öffentliche Feeds und Profile lesen. Home, Mitteilungen, Suche, Liken und Posten brauchen ein Konto.", "Without an account you can read public feeds and profiles. Home, notifications, search, liking and posting need an account."),
                 tr("Weitere Konten fügst du über das Personen-Symbol unten links hinzu. Jede Spalte gehört zu einem Konto.", "Add more accounts with the person icon at the bottom left. Each column belongs to one account."),
@@ -163,6 +164,7 @@ enum HelpContent {
             ]),
             HelpTopic(id: "messages", icon: "envelope", title: tr("Direktnachrichten", "Direct messages"), bullets: [
                 tr("Dein Konto-Bild unten links, dann „Direktnachrichten anzeigen“.", "Your account picture at the bottom left, then “Show Direct Messages”."),
+                tr("„Neue Nachricht“ oben in der Spalte sucht eine Person und öffnet die Unterhaltung. Alternativ: „Nachricht“ in ihrem Profil. Verschickt wird erst, was du dort schreibst.", "“New Message” at the top of the column finds a person and opens the conversation. Or use “Message” on their profile. Only what you write there is sent."),
                 tr("Dafür braucht dein [App-Passwort](https://bsky.app/settings/app-passwords) die Option „Allow access to your direct messages“. Fehlt sie, erstelle ein neues und melde dich damit neu an.", "Your [app password](https://bsky.app/settings/app-passwords) needs the option “Allow access to your direct messages”. If it is missing, create a new one and sign in with it."),
                 tr("Eine neue Unterhaltung startest du mit „Nachricht“ im Profil einer Person.", "Start a new conversation with “Message” on a person's profile."),
                 tr("Bilder lassen sich in Bluesky-Chats nicht verschicken. Links werden automatisch verlinkt.", "Bluesky chats cannot carry pictures. Links are linked automatically."),
