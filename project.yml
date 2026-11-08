@@ -1,0 +1,53 @@
+name: BlueSkyship
+options:
+  bundleIdPrefix: dev.blueskyship
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    # A stable identity keeps Keychain access across rebuilds; ad hoc signing would ask again every build.
+    CODE_SIGN_IDENTITY: "Apple Development"
+    DEVELOPMENT_TEAM: U52XA965SR
+targets:
+  BlueSkyship:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.blueskyship.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: BlueSkyship
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        CODE_SIGN_ENTITLEMENTS: BlueSkyship.entitlements
+        ENABLE_HARDENED_RUNTIME: NO
+      configs:
+        Release:
+          # Notarization requires the hardened runtime.
+          ENABLE_HARDENED_RUNTIME: YES
+  BlueSkyshipTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: BlueSkyship
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/BlueSkyship.app/Contents/MacOS/BlueSkyship"
+schemes:
+  BlueSkyship:
+    build:
+      targets:
+        BlueSkyship: all
+        BlueSkyshipTests: [test]
+    test:
+      targets: [BlueSkyshipTests]
