@@ -15,6 +15,6 @@ These cannot be automated and should be checked before a release:
 - Menus and dialogs that open on the real screen, and drag and drop.
 - Posting, threads, images, video, direct messages and reply rules against the real server. Delete test posts afterwards.
 - **iCloud sync between two Macs.** Not yet verified. Add a favorite on one Mac and check that it appears on the other, then the reverse.
-- **The signed DMG on another Mac.** Not yet verified. It should open without a warning.
+- **The signed DMG on another Mac.** Not yet verified. `scripts/release.sh` checks the signature, tickets and Gatekeeper on the build machine, but only another Mac proves it. Open the DMG there, copy the app to Applications and start it, once with internet and once without. It should open without a warning.
 
 Starting a brand-new conversation and muted words have so far only been tested against the simulated server.

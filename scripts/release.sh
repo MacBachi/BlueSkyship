@@ -28,7 +28,7 @@ xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
     || fail "no notarization credentials named $PROFILE; see step 2 at the top of this script"
 
 mkdir -p "$OUT"
-rm -rf "${OUT:?}/BlueSkyship.xcarchive" "${OUT:?}/export" "${OUT:?}/BlueSkyship.dmg"
+rm -rf "${OUT:?}/BlueSkyship.xcarchive" "${OUT:?}/export" "${OUT:?}/BlueSkyship.dmg" "${OUT:?}/BlueSkyship.zip" "${OUT:?}/dmg"
 
 xcodegen generate
 xcodebuild archive \
@@ -61,11 +61,39 @@ xcodebuild -exportArchive \
 APP="$OUT/export/BlueSkyship.app"
 codesign --verify --deep --strict "$APP"
 
-hdiutil create -volname "BlueSkyship" -srcfolder "$APP" -ov -format UDZO "$OUT/BlueSkyship.dmg"
+# The ticket has to be in the app too: it leaves the DMG when people copy it to Applications,
+# and without one, the first launch on a Mac without internet is refused.
+ditto -c -k --keepParent "$APP" "$OUT/BlueSkyship.zip"
+xcrun notarytool submit "$OUT/BlueSkyship.zip" --keychain-profile "$PROFILE" --wait
+xcrun stapler staple "$APP"
+xcrun stapler validate "$APP"
+rm -f "$OUT/BlueSkyship.zip"
+
+STAGE="$OUT/dmg"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
+ditto "$APP" "$STAGE/BlueSkyship.app"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -volname "BlueSkyship" -srcfolder "$STAGE" -ov -format UDZO "$OUT/BlueSkyship.dmg"
+rm -rf "$STAGE"
 codesign --sign "Developer ID Application" --timestamp "$OUT/BlueSkyship.dmg"
 
 xcrun notarytool submit "$OUT/BlueSkyship.dmg" --keychain-profile "$PROFILE" --wait
 xcrun stapler staple "$OUT/BlueSkyship.dmg"
+
+# Checks what people actually get: the app as it comes out of the finished DMG.
+xcrun stapler validate "$OUT/BlueSkyship.dmg"
 spctl --assess --type open --context context:primary-signature --verbose "$OUT/BlueSkyship.dmg"
+MOUNT="$(mktemp -d)"
+trap 'hdiutil detach "$MOUNT" -quiet 2>/dev/null || true' EXIT
+hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$MOUNT" "$OUT/BlueSkyship.dmg" >/dev/null
+SHIPPED="$MOUNT/BlueSkyship.app"
+codesign --verify --deep --strict "$SHIPPED"
+xcrun stapler validate "$SHIPPED"
+spctl --assess --type execute --verbose "$SHIPPED"
+syspolicy_check distribution "$SHIPPED"
+codesign -dv "$SHIPPED" 2>&1 | grep -q "Authority=Developer ID Application" || fail "the app is not signed with Developer ID"
+[ -f "$SHIPPED/Contents/embedded.provisionprofile" ] || fail "the provisioning profile for iCloud is missing"
+[ "$(lipo -archs "$SHIPPED/Contents/MacOS/BlueSkyship")" = "x86_64 arm64" ] || fail "the app is not universal"
 
 echo "ready: $OUT/BlueSkyship.dmg"
