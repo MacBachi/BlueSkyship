@@ -25,6 +25,12 @@ Das Symbol entsteht aus `Branding/logo.png`:
 swift scripts/make-icon.swift Branding/logo.png Sources/Resources/Assets.xcassets/AppIcon.appiconset
 ```
 
+## Tests
+
+`Tests/UIDriveTests.swift` und `Tests/UIDriveMoreTests.swift` steuern das echte Fenster unsichtbar mit Maus- und Tastenereignissen gegen einen simulierten Server. Sie benutzen weder deine Maus noch dein Konto.
+
+Der Test `writeAllRecordsForValidation` schreibt die verschickten Datensätze in eine Datei. `scripts/validate-records.py <Lexikon-Ordner> <Datei>` prüft sie gegen die offiziellen Bluesky-Definitionen.
+
 ## Aufbau
 
 | Ordner | Inhalt |

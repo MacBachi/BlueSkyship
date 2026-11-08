@@ -7,6 +7,12 @@ import Testing
 final class FakeBluesky: @unchecked Sendable {
     let host = "fake-\(UUID().uuidString).test"
     static let viewerDID = "did:plc:viewer"
+    /// A real content identifier, because the official validator checks their format.
+    static let validCID = "bafkreihybpskotkosezr4yzvkj5et62qpf32efvz4wulirfieqii7p2axy"
+    var includeQuotePost = false
+    var refusesChat = false
+    private var chatCallsWithoutProxy = 0
+    var sawChatProxyOnEveryChatCall: Bool { lock.withLock { chatCallsWithoutProxy == 0 } }
     private let lock = NSLock()
     private var writes: [(name: String, body: [String: Any])] = []
     private var reads: [String] = []
@@ -37,12 +43,25 @@ final class FakeBluesky: @unchecked Sendable {
     func start() {
         StubProtocol.register(host: host) { [self] request in
             let name = request.url?.lastPathComponent ?? ""
+            if name.hasPrefix("chat.bsky."), request.value(forHTTPHeaderField: "atproto-proxy") != "did:web:api.bsky.chat#bsky_chat" {
+                lock.withLock { chatCallsWithoutProxy += 1 }
+            }
+            if refusesChat, name.hasPrefix("chat.bsky.") {
+                lock.withLock { reads.append(name) }
+                return (400, Data(#"{"error":"InvalidToken","message":"Bad token scope"}"#.utf8))
+            }
             if request.httpMethod == "POST" {
                 let body = StubProtocol.body(of: request)
                     .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
                 lock.withLock { writes.append((name, body)) }
                 let count = lock.withLock { writes.count }
-                return (200, Data(#"{"uri":"at://\#(Self.viewerDID)/app.bsky.feed.post/new\#(count)","cid":"cnew\#(count)"}"#.utf8))
+                if name == "com.atproto.repo.uploadBlob" {
+                    return (200, Data(#"{"blob":{"$type":"blob","ref":{"$link":"\#(Self.validCID)"},"mimeType":"image/jpeg","size":3}}"#.utf8))
+                }
+                if name == "chat.bsky.convo.sendMessage" {
+                    return (200, Data(#"{"id":"m9","rev":"r","text":"gesendet","sender":{"did":"\#(Self.viewerDID)"},"sentAt":"2026-01-01T00:02:00Z"}"#.utf8))
+                }
+                return (200, Data(#"{"uri":"at://\#(Self.viewerDID)/app.bsky.feed.post/3new\#(count)","cid":"\#(Self.validCID)"}"#.utf8))
             }
             lock.withLock { reads.append(name) }
             return answer(name)
@@ -59,8 +78,19 @@ final class FakeBluesky: @unchecked Sendable {
         ]
         switch name {
         case "app.bsky.feed.getTimeline", "app.bsky.feed.getAuthorFeed", "app.bsky.feed.getFeed", "app.bsky.feed.getActorLikes":
-            let feed = posts.map { #"{"post":\#($0)}"# }.joined(separator: ",")
+            var entries = posts
+            if includeQuotePost {
+                let embed = #"{"$type":"app.bsky.embed.record#view","record":{"$type":"app.bsky.embed.record#viewRecord","uri":"at://did:plc:q/app.bsky.feed.post/q1","cid":"c","author":{"did":"did:plc:q","handle":"q.test","displayName":"Quentin"},"value":{"text":"zitierter Text"},"indexedAt":"2026-01-01T00:00:00Z"}}"#
+                entries.insert(#"{"uri":"at://did:plc:alice/app.bsky.feed.post/qp","cid":"c","author":{"did":"did:plc:alice","handle":"alice.test","displayName":"Alice"},"indexedAt":"2026-01-01T00:00:00.000Z","record":{"text":"Zitiert"},"embed":\#(embed)}"#, at: 0)
+            }
+            let feed = entries.map { #"{"post":\#($0)}"# }.joined(separator: ",")
             return (200, Data(#"{"feed":[\#(feed)]}"#.utf8))
+        case "app.bsky.feed.getPosts":
+            return (200, Data(#"{"posts":[\#(posts[0])]}"#.utf8))
+        case "chat.bsky.convo.listConvos":
+            return (200, Data(#"{"convos":[{"id":"c1","rev":"r","muted":false,"unreadCount":1,"members":[{"did":"\#(Self.viewerDID)","handle":"me.test"},{"did":"did:plc:bob","handle":"bob.test","displayName":"Bob"}],"lastMessage":{"$type":"chat.bsky.convo.defs#messageView","id":"m2","rev":"r","text":"Zweite Nachricht","sender":{"did":"did:plc:bob"},"sentAt":"2026-01-01T00:01:00Z"}}]}"#.utf8))
+        case "chat.bsky.convo.getMessages":
+            return (200, Data(#"{"messages":[{"$type":"chat.bsky.convo.defs#messageView","id":"m2","rev":"r","text":"Zweite Nachricht","sender":{"did":"did:plc:bob"},"sentAt":"2026-01-01T00:01:00Z"},{"$type":"chat.bsky.convo.defs#messageView","id":"m1","rev":"r","text":"Erste Nachricht","sender":{"did":"\#(Self.viewerDID)"},"sentAt":"2026-01-01T00:00:00Z"}]}"#.utf8))
         case "app.bsky.feed.searchPosts":
             return (200, Data(#"{"posts":[\#(posts[0])]}"#.utf8))
         case "app.bsky.feed.getPostThread":
@@ -74,7 +104,7 @@ final class FakeBluesky: @unchecked Sendable {
         case "app.bsky.notification.getUnreadCount":
             return (200, Data(#"{"count":2}"#.utf8))
         case "app.bsky.notification.listNotifications":
-            return (200, Data(#"{"notifications":[]}"#.utf8))
+            return (200, Data(#"{"notifications":[{"uri":"at://did:plc:nina/app.bsky.feed.like/l1","cid":"c","author":{"did":"did:plc:nina","handle":"nina.test","displayName":"Nina"},"reason":"like","reasonSubject":"at://did:plc:alice/app.bsky.feed.post/p1","indexedAt":"2026-01-01T00:00:00Z","isRead":false,"record":{}}]}"#.utf8))
         case "app.bsky.actor.searchActorsTypeahead":
             return (200, Data(#"{"actors":[{"did":"did:plc:alice","handle":"alice.test","displayName":"Alice"}]}"#.utf8))
         default:
@@ -85,7 +115,7 @@ final class FakeBluesky: @unchecked Sendable {
 
 /// An inactive window uses a first click only to become active. This one behaves as if already active,
 /// which is how the real window behaves in use, without taking the focus from whatever is in front.
-private final class ActiveLookingWindow: NSWindow {
+final class ActiveLookingWindow: NSWindow {
     override var isKeyWindow: Bool { true }
     override var isMainWindow: Bool { true }
     override var canBecomeKey: Bool { true }
@@ -191,6 +221,18 @@ final class DeckHarness {
     /// What is under a position, the way a real click would find it.
     func view(x: CGFloat, y: CGFloat) -> NSView? {
         window.contentView?.hitTest(windowPoint(x: x, y: y))
+    }
+
+    /// Finds selectable text by what it says, wherever it is on the screen.
+    func textView(containing text: String) -> PostTextView? {
+        func search(_ view: NSView) -> PostTextView? {
+            if let found = view as? PostTextView, found.string.contains(text) { return found }
+            for child in view.subviews {
+                if let found = search(child) { return found }
+            }
+            return nil
+        }
+        return search(hosting)
     }
 
     func textView(x: CGFloat, y: CGFloat) -> PostTextView? {

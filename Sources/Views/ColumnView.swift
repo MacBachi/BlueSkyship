@@ -263,7 +263,7 @@ struct ColumnView: View {
                 .help(tr("In dieser Spalte suchen (⌘F)", "Search this column (⌘F)"))
                 .accessibilityLabel(tr("In dieser Spalte suchen", "Search this column"))
             }
-            if favoritePreview == nil {
+            if favoritePreview == nil, !isMessagesColumn {
                 Button {
                     isEditingFilter.toggle()
                 } label: {
