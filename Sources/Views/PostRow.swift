@@ -15,7 +15,7 @@ extension DeckStore {
             PostMenuEntry(title: isFavorite(favoriteKind)
                 ? tr("\(person.bestName) aus Favoriten entfernen", "Remove \(person.bestName) from Favorites")
                 : tr("\(person.bestName) zu Favoriten hinzufügen", "Add \(person.bestName) to Favorites")) { [self] in
-                toggleFavorite(person: person)
+                toggleFavorite(person: person, accountDID: accountDID)
             },
         ]
         if !isOwnAccount(did: person.did) {
@@ -75,6 +75,19 @@ struct PostRow: View {
 
     @State private var isTranslating = false
     @State private var showsCoveredMedia = false
+    /// A Mastodon content warning covers text and media until opened.
+    @State private var showsWarnedContent = false
+
+    private var contentWarning: String? {
+        showsWarnedContent ? nil : post.mastodon?.warning
+    }
+
+    /// Mastodon marks media as sensitive without a warning text; it stays covered like a labeled picture.
+    private var coversMedia: String? {
+        if case .warn(let label) = moderation { return label }
+        if post.mastodon?.sensitive == true, post.mastodon?.warning == nil { return tr("Sensibel", "Sensitive") }
+        return nil
+    }
 
     private var moderation: ModerationPrefs.Decision {
         deck.moderationDecision(for: post, accountDID: accountDID)
@@ -91,7 +104,9 @@ struct PostRow: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let repostedBy {
-                Label(tr("\(repostedBy.bestName) hat repostet", "\(repostedBy.bestName) reposted"), systemImage: "arrow.2.squarepath")
+                Label(post.isMastodon
+                    ? tr("\(repostedBy.bestName) hat geteilt", "\(repostedBy.bestName) boosted")
+                    : tr("\(repostedBy.bestName) hat repostet", "\(repostedBy.bestName) reposted"), systemImage: "arrow.2.squarepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 46)
@@ -118,7 +133,9 @@ struct PostRow: View {
                             .lineLimit(1)
                             .contextMenu { PersonMenuItems(person: replyingTo) }
                     }
-                    if !post.record.text.isEmpty {
+                    if let contentWarning {
+                        warningButton(contentWarning)
+                    } else if !post.record.text.isEmpty {
                         SelectablePostText(
                             text: RichText.attributed(text: post.record.text, facets: post.record.facets),
                             fontSize: deck.settings.textSize.points,
@@ -128,8 +145,8 @@ struct PostRow: View {
                             onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) }
                         )
                     }
-                    if let embed = post.embed {
-                        if case .warn(let label) = moderation, !showsCoveredMedia {
+                    if let embed = post.embed, contentWarning == nil {
+                        if let label = coversMedia, !showsCoveredMedia {
                             Button {
                                 showsCoveredMedia = true
                             } label: {
@@ -161,6 +178,43 @@ struct PostRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onOpenThread(post) }
         .contextMenu { contextItems }
+    }
+
+    private func warningButton(_ warning: String) -> some View {
+        Button {
+            showsWarnedContent = true
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(tr("Inhaltswarnung. Klicken zum Anzeigen", "Content warning. Click to show"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tr("Inhaltswarnung: \(warning). Anzeigen", "Content warning: \(warning). Show"))
+    }
+
+    private var repostLabel: String {
+        if post.isMastodon {
+            return post.viewer?.repost == nil ? tr("Boosten", "Boost") : tr("Boost zurücknehmen", "Undo Boost")
+        }
+        return post.viewer?.repost == nil ? tr("Reposten", "Repost") : tr("Repost zurücknehmen", "Undo Repost")
+    }
+
+    private var likeLabel: String {
+        if post.isMastodon {
+            return post.viewer?.like != nil ? tr("Favorit entfernen", "Remove favorite") : tr("Favorisieren", "Favorite")
+        }
+        return post.viewer?.like != nil ? tr("Like entfernen", "Remove like") : tr("Liken", "Like")
     }
 
     private var authorLine: some View {
@@ -218,7 +272,7 @@ struct PostRow: View {
             }
             Spacer()
             Menu {
-                Button(post.viewer?.repost == nil ? tr("Reposten", "Repost") : tr("Repost zurücknehmen", "Undo Repost")) {
+                Button(repostLabel) {
                     Task { await deck.toggleRepost(post, accountDID: accountDID, update: onUpdate) }
                 }
                 Button(tr("Zitieren", "Quote")) {
@@ -240,7 +294,7 @@ struct PostRow: View {
             action(
                 post.viewer?.like != nil ? "heart.fill" : "heart",
                 count: post.likeCount,
-                label: post.viewer?.like != nil ? tr("Like entfernen", "Remove like") : tr("Liken", "Like"),
+                label: likeLabel,
                 tint: post.viewer?.like != nil ? .pink : nil
             ) {
                 Task { await deck.toggleLike(post, accountDID: accountDID, update: onUpdate) }
@@ -294,7 +348,7 @@ struct PostRow: View {
                 if isFavorite {
                     deck.removeFavorite(kind: kind)
                 } else {
-                    deck.addFavorite(kind: kind, title: "#\(tag)")
+                    deck.addFavorite(kind: kind, title: "#\(tag)", accountDID: accountDID)
                 }
             })
         }

@@ -5,7 +5,7 @@
 <h1 align="center">BlueSkyship</h1>
 
 <p align="center">
-  A native macOS deck client for <a href="https://bsky.app">Bluesky</a>.<br>
+  A native macOS deck client for <a href="https://bsky.app">Bluesky</a> and <a href="https://joinmastodon.org">Mastodon</a>.<br>
   Keep your timeline, searches, feeds and messages side by side, in columns.
 </p>
 
@@ -21,6 +21,7 @@
 ## Features
 
 - **Columns:** home, notifications, mentions, searches, profiles, feeds, lists, likes, bookmarks and direct messages. Move and resize them freely, and see at a glance which columns are out of view.
+- **Bluesky and Mastodon side by side:** columns of both networks in the same deck, each tied to its account. Mastodon adds local and federated timelines, lists, visibility and content warnings.
 - **Several decks:** switch between sets of columns with `⌘1` to `⌘9`.
 - **Filters per column:** only certain words, hide words or `@handles`, only posts with media, no reposts, no replies. Filters run locally.
 - **Favorites:** people, hashtags, searches, feeds and lists within reach, without taking up a column. Pin one when you want it to stay.
@@ -47,6 +48,8 @@ For direct messages, turn on **Allow access to your direct messages** when you c
 
 The password is used only to sign in and is never stored. Session tokens stay in the macOS Keychain. See [SECURITY.md](SECURITY.md).
 
+For **Mastodon**, choose Mastodon at the top of the sign-in window and enter your server, such as `mastodon.social`. You sign in on your server's own page in the browser; the app only receives an access token, which stays in the Keychain and is revoked when you sign out.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
@@ -67,6 +70,7 @@ The password is used only to sign in and is never stored. Session tokens stay in
 - Scheduled posts are sent only while the app is running and the Mac is awake.
 - iCloud sync uses the last change for a whole list, so simultaneous edits on two Macs can overwrite each other. Sync between two Macs has not been verified yet.
 - There is no iPhone or iPad version.
+- Mastodon: voting in polls, accepting follow requests and editing posts work only in the browser for now.
 
 ## Build from source
 
@@ -87,6 +91,7 @@ To sign with your own Apple Developer account, see [CONTRIBUTING.md](CONTRIBUTIN
 | Folder | Contents |
 | --- | --- |
 | `Sources/ATProto` | XRPC client with token refresh, data models, API calls, facets |
+| `Sources/Mastodon` | Mastodon client, OAuth sign-in, safe HTML reader, mapping into the shared models |
 | `Sources/Deck` | Columns and their loading state, accounts, actions, iCloud sync |
 | `Sources/Views` | Deck window, columns, posts, embeds, composer, dialogs, help |
 | `Tests` | Unit tests and invisible UI tests against a simulated server |

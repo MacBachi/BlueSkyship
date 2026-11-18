@@ -67,10 +67,17 @@ struct ProfileDetail: Decodable, Hashable, Sendable {
     var followsCount: Int?
     var postsCount: Int?
     var viewer: ProfileViewerState?
+    /// The profile page on a Mastodon server. Bluesky profiles always live on bsky.app.
+    var externalURL: String?
+    /// The account id on the Mastodon server that was read.
+    var mastodonID: String?
 
     var avatarURL: URL? { avatar.flatMap(URL.init(string:)) }
     var bannerURL: URL? { banner.flatMap(URL.init(string:)) }
-    var webURL: URL? { URL(string: "https://bsky.app/profile/\(handle)") }
+    var webURL: URL? {
+        if MastodonID.isActor(did) { return externalURL.flatMap(LinkPolicy.webURL) }
+        return URL(string: "https://bsky.app/profile/\(handle)")
+    }
     var bestName: String {
         if let displayName, !displayName.isEmpty { return displayName }
         return handle
@@ -149,6 +156,13 @@ struct PostRecord: Decodable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey { case text, createdAt, facets, reply }
 
+    init(text: String, createdAt: String? = nil, facets: [Facet]? = nil, reply: ReplyRef? = nil) {
+        self.text = text
+        self.createdAt = createdAt
+        self.facets = facets
+        self.reply = reply
+    }
+
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
@@ -198,6 +212,15 @@ struct QuotedPost: Decodable, Hashable, Sendable {
     var embeds: [Embed]?
 
     private enum CodingKeys: String, CodingKey { case uri, cid, author, value, indexedAt, embeds }
+
+    init(uri: String, cid: String, author: Profile, value: PostRecord, indexedAt: String, embeds: [Embed]? = nil) {
+        self.uri = uri
+        self.cid = cid
+        self.author = author
+        self.value = value
+        self.indexedAt = indexedAt
+        self.embeds = embeds
+    }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -335,13 +358,17 @@ struct PostView: Decodable, Hashable, Sendable, Identifiable {
     var quoteCount: Int?
     var viewer: PostViewer?
     var labels: [ContentLabel]?
+    /// Set for posts read from Mastodon.
+    var mastodon: MastodonPostInfo?
 
     var id: String { uri }
     var ref: StrongRef { StrongRef(uri: uri, cid: cid) }
     var date: Date? { ATDate.parse(record.createdAt ?? indexedAt) }
+    var isMastodon: Bool { mastodon != nil }
 
     /// The bsky.app URL for this post, for "open in browser" and "copy link".
     var webURL: URL? {
+        if let mastodon { return mastodon.url.flatMap(LinkPolicy.webURL) }
         guard let rkey = uri.split(separator: "/").last else { return nil }
         return URL(string: "https://bsky.app/profile/\(author.handle)/post/\(rkey)")
     }
@@ -350,6 +377,7 @@ struct PostView: Decodable, Hashable, Sendable, Identifiable {
 struct FeedReason: Decodable, Hashable, Sendable {
     let by: Profile?
     private enum CodingKeys: String, CodingKey { case by }
+    init(by: Profile?) { self.by = by }
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         by = try? container.decodeIfPresent(Profile.self, forKey: .by)
@@ -361,6 +389,8 @@ struct ReplyContext: Decodable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey { case parent }
     private enum ParentKeys: String, CodingKey { case author }
+
+    init(parentAuthor: Profile?) { self.parentAuthor = parentAuthor }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

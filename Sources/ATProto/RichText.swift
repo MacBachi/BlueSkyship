@@ -35,7 +35,8 @@ enum RichText {
             // Anything but a web address stays plain text. This also keeps a post from forging internal links.
             return LinkPolicy.webURL(uri)
         case .mention(let did):
-            return did.hasPrefix("did:") ? internalURL(host: "profile", value: did) : nil
+            // A DID, or the address of a Mastodon account that the server itself named.
+            return did.hasPrefix("did:") || MastodonID.isActor(did) ? internalURL(host: "profile", value: did) : nil
         case .tag(let tag):
             return internalURL(host: "tag", value: tag)
         case .unknown:

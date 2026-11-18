@@ -80,7 +80,7 @@ final class ColumnFeed {
     var hasMore: Bool { cursor != nil }
     var hiddenCount: Int { items.count - visibleItems.count }
 
-    func refresh(using client: XRPCClient, kind: ColumnKind) async {
+    func refresh(using client: any SocialReader, kind: ColumnKind) async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -98,13 +98,13 @@ final class ColumnFeed {
     }
 
     /// Fetches older items until at least one more becomes visible, or the page limit is reached.
-    func loadMore(using client: XRPCClient, kind: ColumnKind) async {
+    func loadMore(using client: any SocialReader, kind: ColumnKind) async {
         let target = visibleItems.count + 1
         await fetchPages(until: target, using: client, kind: kind)
     }
 
     /// Keeps a filtered column from looking empty just because the first page had few matches.
-    func fillIfNeeded(using client: XRPCClient, kind: ColumnKind) async {
+    func fillIfNeeded(using client: any SocialReader, kind: ColumnKind) async {
         guard filter.isActive || isSearching, !items.isEmpty, autoFillBudget > 0 else { return }
         await fetchPages(until: Self.minimumVisibleItems, usesAutoFillBudget: true, using: client, kind: kind)
     }
@@ -112,7 +112,7 @@ final class ColumnFeed {
     private func fetchPages(
         until visibleTarget: Int,
         usesAutoFillBudget: Bool = false,
-        using client: XRPCClient,
+        using client: any SocialReader,
         kind: ColumnKind
     ) async {
         guard !isLoadingMore, !isRefreshing else { return }

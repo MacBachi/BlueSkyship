@@ -60,6 +60,9 @@ private struct GeneralSettings: View {
                 Picker(tr("Sprache neuer Posts", "Language of new posts"), selection: $settings.postLanguage) {
                     ForEach(AppSettings.languageChoices, id: \.code) { Text($0.label).tag($0.code) }
                 }
+                Picker(tr("Sichtbarkeit neuer Mastodon-Posts", "Visibility of new Mastodon posts"), selection: $settings.mastodonVisibility) {
+                    ForEach(MastodonVisibility.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
             }
         }
         .formStyle(.grouped)
@@ -83,7 +86,7 @@ private struct AccountSettings: View {
                         Avatar(url: account.avatarURL, size: 28)
                         VStack(alignment: .leading, spacing: 0) {
                             Text(account.displayName?.isEmpty == false ? account.displayName! : account.handle)
-                            Text("@\(account.handle)").font(.caption).foregroundStyle(.secondary)
+                            Text("@\(account.handle) · \(account.resolvedNetwork.label)").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button(tr("Abmelden", "Sign Out")) { accountToRemove = account }
@@ -94,7 +97,7 @@ private struct AccountSettings: View {
                 Button(tr("Konto hinzufügen …", "Add Account…")) { deck.isLoggingIn = true }
                 Button(tr("App-Passwörter bei Bluesky verwalten", "Manage App Passwords on Bluesky")) { openURL(DeckStore.appPasswordsURL) }
             } footer: {
-                Text(tr("Die App speichert nur Sitzungstoken im Schlüsselbund, nie dein Passwort.", "The app only stores session tokens in the Keychain, never your password."))
+                Text(tr("Die App speichert nur Sitzungstoken im Schlüsselbund, nie dein Passwort. Abmelden zieht bei Mastodon auch den Zugangsschlüssel auf dem Server zurück.", "The app only stores session tokens in the Keychain, never your password. Signing out of Mastodon also revokes the access key on the server."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

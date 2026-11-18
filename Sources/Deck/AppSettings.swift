@@ -49,6 +49,7 @@ final class AppSettings {
         static let textSize = "settings.textSize"
         static let requireAltText = "settings.requireAltText"
         static let iCloudSync = "settings.iCloudSync"
+        static let mastodonVisibility = "settings.mastodonVisibility"
     }
 
     private let defaults: UserDefaults
@@ -71,6 +72,8 @@ final class AppSettings {
     var requireAltText: Bool { didSet { defaults.set(requireAltText, forKey: Key.requireAltText) } }
     /// Favorites, decks and draft text. Sign-ins and pictures stay on each Mac.
     var iCloudSync: Bool { didSet { defaults.set(iCloudSync, forKey: Key.iCloudSync) } }
+    /// Who sees a new Mastodon post unless chosen otherwise in the composer.
+    var mastodonVisibility: MastodonVisibility { didSet { defaults.set(mastodonVisibility.rawValue, forKey: Key.mastodonVisibility) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -84,6 +87,7 @@ final class AppSettings {
         showMedia = defaults.object(forKey: Key.showMedia) as? Bool ?? true
         defaultWidth = defaults.string(forKey: Key.width).flatMap(ColumnWidth.init(rawValue:)) ?? .medium
         postLanguage = defaults.string(forKey: Key.language) ?? ""
+        mastodonVisibility = defaults.string(forKey: Key.mastodonVisibility).flatMap(MastodonVisibility.init(rawValue:)) ?? .public
     }
 
     /// The language to tag a new post with, or `nil` when the system does not name one.

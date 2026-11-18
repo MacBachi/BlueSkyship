@@ -21,9 +21,7 @@ struct ReactionsPanel: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
-    private var client: XRPCClient {
-        deck.accounts.client(for: accountDID) ?? deck.accounts.publicClient
-    }
+    private var client: any SocialReader { deck.reader(for: accountDID) }
 
     private func label(_ tab: Tab) -> String {
         switch tab {

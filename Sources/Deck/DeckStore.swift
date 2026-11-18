@@ -20,6 +20,8 @@ struct ComposeContext: Equatable {
     var initialSegments = [""]
     /// Pictures per post, from a saved draft.
     var initialImages: [[DraftImage]] = []
+    /// Visibility and content warning, used when the account is on Mastodon.
+    var mastodonOptions = MastodonPostOptions()
     var draftID = UUID()
     /// A new one for every start, so the panel begins fresh.
     var sessionID = UUID()
@@ -165,11 +167,35 @@ final class DeckStore {
         saveColumns()
     }
 
-    func readClient(for column: Column) -> XRPCClient? {
+    func readClient(for column: Column) -> (any SocialReader)? {
         if let did = column.accountDID {
-            return accounts.client(for: did)
+            return accounts.reader(for: did)
         }
         return column.kind.requiresAccount ? nil : accounts.publicClient
+    }
+
+    /// Reads for an account, or else through the first Bluesky account, or else Bluesky's public service.
+    func reader(for accountDID: String?) -> any SocialReader {
+        accounts.reader(for: accountDID)
+            ?? accounts.client(for: accounts.firstBluesky?.did)
+            ?? accounts.publicClient
+    }
+
+    /// The account a view without its own account reads with. Mastodon people and Mastodon-only views
+    /// need a Mastodon account; Bluesky feeds and lists need Bluesky.
+    func defaultAccountDID(for kind: ColumnKind, preferred: String? = nil) -> String? {
+        if let preferred, accounts.reader(for: preferred) != nil { return preferred }
+        switch kind {
+        case .author(let actor), .profileTab(let actor, _), .ownPosts(let actor), .likes(let actor):
+            if MastodonID.isActor(actor) { return accounts.mastodonAccount(forActor: actor)?.did }
+            return accounts.firstBluesky?.did
+        case .localTimeline, .federatedTimeline:
+            return accounts.firstMastodon?.did
+        case .feed, .list:
+            return accounts.firstBluesky?.did
+        default:
+            return accounts.accounts.first?.did
+        }
     }
 
     func addColumn(_ column: Column) {
@@ -246,7 +272,8 @@ final class DeckStore {
             kind: kind,
             title: title,
             avatar: avatar,
-            accountDID: Favorite.isTiedToAccount(kind) ? accountDID : nil,
+            // Mastodon views only work through an account on Mastodon, so they keep theirs.
+            accountDID: Favorite.isTiedToAccount(kind) || accounts.network(of: accountDID) == .mastodon ? accountDID : nil,
             filter: filter,
             width: width
         ))
@@ -266,12 +293,12 @@ final class DeckStore {
         saveFavorites()
     }
 
-    func toggleFavorite(person: Profile) {
+    func toggleFavorite(person: Profile, accountDID: String? = nil) {
         let kind = ColumnKind.profileTab(actor: person.handle, tab: .replies)
         if isFavorite(kind) {
             removeFavorite(kind: kind)
         } else {
-            addFavorite(kind: kind, title: person.bestName, avatar: person.avatar)
+            addFavorite(kind: kind, title: person.bestName, avatar: person.avatar, accountDID: accountDID)
         }
     }
 
@@ -293,7 +320,7 @@ final class DeckStore {
         case .author(let name), .profileTab(let name, _): actor = name
         default: return
         }
-        let client = accounts.client(for: accounts.accounts.first?.did) ?? accounts.publicClient
+        let client = reader(for: defaultAccountDID(for: kind))
         guard let profile = try? await client.profile(actor: actor),
               let index = favorites.firstIndex(where: { $0.kind == kind }) else { return }
         favorites[index].title = profile.bestName
@@ -303,12 +330,21 @@ final class DeckStore {
 
     /// Understands `@name`, `#tag`, a search term, or a bsky.app link to a profile, feed or list.
     func addFavorite(fromInput input: String) async throws {
-        let client = accounts.client(for: accounts.accounts.first?.did) ?? accounts.publicClient
+        let client = accounts.client(for: accounts.firstBluesky?.did) ?? accounts.publicClient
         switch FavoriteInput.parse(input) {
         case .invalid:
             throw XRPCError(status: 0, code: nil, message: tr("Bitte @name, #tag, einen Suchbegriff oder einen Bluesky-Link eingeben.", "Please enter @name, #tag, a search term or a Bluesky link."))
         case .search(let query):
             addFavorite(kind: .search(query: query), title: query)
+        case .person(let actor) where MastodonID.isActor(actor):
+            guard let account = accounts.mastodonAccount(forActor: actor) else {
+                throw XRPCError(status: 0, code: nil, message: tr("Für Mastodon-Profile musst du mit einem Mastodon-Konto angemeldet sein.", "Mastodon profiles need a signed-in Mastodon account."))
+            }
+            let profile = try await reader(for: account.did).profile(actor: actor)
+            addFavorite(
+                kind: .profileTab(actor: profile.handle, tab: .replies), title: profile.bestName,
+                avatar: profile.avatar, accountDID: account.did
+            )
         case .person(let actor):
             let profile = try await client.profile(actor: actor)
             toggleOn(profile)
@@ -387,7 +423,7 @@ final class DeckStore {
             Column(
                 id: favorite.id,
                 kind: favorite.kind,
-                accountDID: favorite.accountDID ?? accounts.accounts.first?.did,
+                accountDID: defaultAccountDID(for: favorite.kind, preferred: favorite.accountDID),
                 filter: favorite.filter
             )
         }
@@ -395,7 +431,7 @@ final class DeckStore {
 
     func pinAsColumn(_ favorite: Favorite) {
         closeFavoritePreview()
-        let accountDID = favorite.accountDID ?? accounts.accounts.first?.did
+        let accountDID = defaultAccountDID(for: favorite.kind, preferred: favorite.accountDID)
         if columns.contains(where: { $0.kind == favorite.kind && $0.accountDID == accountDID }) {
             openColumn(kind: favorite.kind, accountDID: accountDID)
         } else {
@@ -427,12 +463,14 @@ final class DeckStore {
     }
 
     func logout(did: String) async {
+        let wasMastodon = accounts.network(of: did) == .mastodon
         await accounts.logout(did: did)
         // Columns of that account fall back to public reading, or go away if they need an account.
         for index in decks.indices {
             decks[index].columns = decks[index].columns.compactMap { column in
                 guard column.accountDID == did else { return column }
-                if column.kind.requiresAccount {
+                // Bluesky's public service cannot read anything from Mastodon.
+                if column.kind.requiresAccount || wasMastodon {
                     feeds[column.id] = nil
                     return nil
                 }
@@ -451,7 +489,7 @@ final class DeckStore {
         }
     }
 
-    /// First sign-in puts the columns people expect in front of the starter deck.
+    /// The first account of a network puts the columns people expect in front of the deck.
     func didLogin(_ account: Account, isFirstAccount: Bool) {
         if isFirstAccount {
             for kind in [ColumnKind.notifications, .home].reversed() {
@@ -466,7 +504,7 @@ final class DeckStore {
 
     /// The account that acts for a column: its own, or the first one when reading anonymously.
     func actingAccount(for accountDID: String?) -> (did: String, client: XRPCClient)? {
-        let did = accountDID ?? accounts.accounts.first?.did
+        let did = accountDID ?? accounts.firstBluesky?.did
         guard let did, let client = accounts.client(for: did) else {
             showToast(tr("Dafür musst du angemeldet sein.", "You need to be signed in for that."))
             isLoggingIn = true
@@ -476,6 +514,12 @@ final class DeckStore {
     }
 
     func toggleLike(_ post: PostView, accountDID: String?, update: @escaping @MainActor (PostView) -> Void) async {
+        if post.isMastodon {
+            await toggleMastodon(post, accountDID: accountDID, keyPath: \.like, count: \.likeCount, update: update) {
+                try await $0.setFavourite(post.uri, $1)
+            }
+            return
+        }
         guard let actor = actingAccount(for: accountDID) else { return }
         var changed = post
         let existing = post.viewer?.like
@@ -501,6 +545,12 @@ final class DeckStore {
     }
 
     func toggleRepost(_ post: PostView, accountDID: String?, update: @escaping @MainActor (PostView) -> Void) async {
+        if post.isMastodon {
+            await toggleMastodon(post, accountDID: accountDID, keyPath: \.repost, count: \.repostCount, update: update) {
+                try await $0.setReblog(post.uri, $1)
+            }
+            return
+        }
         guard let actor = actingAccount(for: accountDID) else { return }
         var changed = post
         let existing = post.viewer?.repost
@@ -525,9 +575,68 @@ final class DeckStore {
         }
     }
 
+    /// The Mastodon account that acts in a column. Mastodon posts and people can only be reached from there.
+    func mastodonActor(for accountDID: String?) -> MastodonClient? {
+        guard let client = accounts.mastodon(for: accountDID) else {
+            showToast(tr("Dafür musst du mit einem Mastodon-Konto angemeldet sein.", "You need a signed-in Mastodon account for that."))
+            return nil
+        }
+        return client
+    }
+
+    /// Favourite and boost: shown at once, and put back if the server says no.
+    private func toggleMastodon(
+        _ post: PostView, accountDID: String?,
+        keyPath: WritableKeyPath<PostViewer, String?>, count: WritableKeyPath<PostView, Int?>,
+        update: @escaping @MainActor (PostView) -> Void,
+        perform: (MastodonClient, Bool) async throws -> Void
+    ) async {
+        guard let client = mastodonActor(for: accountDID) else { return }
+        let turnOn = post.viewer?[keyPath: keyPath] == nil
+        var changed = post
+        var viewer = post.viewer ?? PostViewer()
+        viewer[keyPath: keyPath] = turnOn ? "set" : nil
+        changed.viewer = viewer
+        changed[keyPath: count] = max(0, (post[keyPath: count] ?? 0) + (turnOn ? 1 : -1))
+        update(changed)
+        do {
+            try await perform(client, turnOn)
+        } catch {
+            update(post)
+            showToast(error.localizedDescription)
+        }
+    }
+
     func toggleFollow(
         _ profile: ProfileDetail, accountDID: String?, update: @escaping @MainActor (ProfileDetail) -> Void
     ) async {
+        if MastodonID.isActor(profile.did) {
+            guard let client = mastodonActor(for: accountDID) else { return }
+            let isFollowing = profile.viewer?.following != nil
+            var changed = profile
+            var viewer = profile.viewer ?? ProfileViewerState()
+            viewer.following = isFollowing ? nil : "pending"
+            changed.viewer = viewer
+            update(changed)
+            do {
+                let relationship = try await client.accountAction(profile.did, isFollowing ? "unfollow" : "follow")
+                viewer.following = relationship.following == true ? "following" : (relationship.requested == true ? "requested" : nil)
+                changed.viewer = viewer
+                if relationship.following == true, !isFollowing {
+                    changed.followersCount = (profile.followersCount ?? 0) + 1
+                } else if isFollowing {
+                    changed.followersCount = max(0, (profile.followersCount ?? 0) - 1)
+                }
+                update(changed)
+                if relationship.requested == true {
+                    showToast(tr("Anfrage gesendet. Diese Person bestätigt Follower selbst.", "Request sent. This person approves followers."))
+                }
+            } catch {
+                update(profile)
+                showToast(error.localizedDescription)
+            }
+            return
+        }
         guard let actor = actingAccount(for: accountDID) else { return }
         var changed = profile
         var viewer = profile.viewer ?? ProfileViewerState()
@@ -550,19 +659,45 @@ final class DeckStore {
         }
     }
 
-    func startCompose(replyTo: PostView? = nil, quote: PostView? = nil, accountDID: String? = nil) {
-        guard let did = accountDID ?? accounts.accounts.first?.did else {
+    func startCompose(
+        replyTo: PostView? = nil, quote: PostView? = nil, accountDID: String? = nil, text: String = "",
+        visibility: MastodonVisibility? = nil
+    ) {
+        // A reply or quote goes out on the network of the post it answers.
+        let target = replyTo ?? quote
+        let fallback = target.map { $0.isMastodon ? accounts.firstMastodon?.did : accounts.firstBluesky?.did }
+            ?? accounts.accounts.first?.did
+        guard let did = accountDID ?? fallback else {
             showToast(tr("Zum Posten musst du angemeldet sein.", "You need to be signed in to post."))
             isLoggingIn = true
             return
         }
-        compose = ComposeContext(replyTo: replyTo, quote: quote, accountDID: did)
+        var context = ComposeContext(replyTo: replyTo, quote: quote, accountDID: did, initialSegments: [text])
+        if let replyTo, let parent = replyTo.mastodon?.visibility.flatMap(MastodonVisibility.init(rawValue:)) {
+            context.mastodonOptions.visibility = settings.mastodonVisibility.narrowed(to: parent)
+            // Answering a content warning keeps it, as Mastodon's own apps do.
+            context.mastodonOptions.spoilerText = replyTo.mastodon?.spoilerText ?? ""
+        } else {
+            context.mastodonOptions.visibility = visibility ?? settings.mastodonVisibility
+        }
+        compose = context
     }
 
     /// Sends one post or a whole thread. On failure the result tells how far it got.
     func publish(
         segments: [String], images: [[DraftImage]], video: VideoDraft?, replyRule: ReplyRule, context: ComposeContext
     ) async -> ThreadResult {
+        if let mastodon = accounts.mastodon(for: context.accountDID) {
+            var first = PostDraft(text: segments.first ?? "", images: images.first ?? [], video: video)
+            first.langs = settings.effectivePostLanguage.map { [$0] } ?? []
+            first.reply = context.effectiveReply
+            first.quote = context.effectiveQuote
+            let result = await mastodon.createThread(
+                texts: segments, first: first, laterImages: Self.laterImages(images), options: context.mastodonOptions
+            )
+            reportPublish(result, count: segments.count)
+            return result
+        }
         guard let did = context.accountDID, let client = accounts.client(for: did) else {
             return ThreadResult(error: XRPCError(status: 401, code: "AuthenticationRequired", message: nil))
         }
@@ -576,6 +711,12 @@ final class DeckStore {
             texts: segments, first: first, laterImages: Self.laterImages(images),
             replyRule: replyRule, repo: did
         )
+        reportPublish(result, count: segments.count)
+        return result
+    }
+
+    private func reportPublish(_ result: ThreadResult, count: Int) {
+        let segments = Array(repeating: "", count: count)
         if let error = result.error {
             showToast(result.sent > 0
                 ? tr("\(result.sent) von \(segments.count) gesendet: \(error.localizedDescription)", "\(result.sent) of \(segments.count) sent: \(error.localizedDescription)")
@@ -585,7 +726,6 @@ final class DeckStore {
                 ? tr("Gepostet, aber die Antwort-Einschränkung konnte nicht gesetzt werden. Alle können antworten.", "Posted, but the reply limit could not be set. Everyone can reply.")
                 : tr("Gepostet.", "Posted."))
         }
-        return result
     }
 
     // MARK: Links
@@ -595,6 +735,10 @@ final class DeckStore {
         guard url.scheme == RichText.internalScheme, url.host == "tag",
               let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "v" })?.value else { return false }
+        if accounts.network(of: accountDID) == .mastodon {
+            openColumn(kind: .search(query: "#\(value)"), accountDID: accountDID)
+            return true
+        }
         guard let actor = actingAccount(for: accountDID) else { return true }
         openColumn(kind: .search(query: "#\(value)"), accountDID: actor.did)
         return true

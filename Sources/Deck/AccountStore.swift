@@ -41,13 +41,56 @@ enum SessionKeychain {
     }
 }
 
+/// The Mastodon token, one item per account, apart from Bluesky's sessions.
+enum MastodonKeychain {
+    private static let service = "dev.blueskyship.mastodon"
+
+    static func save(_ session: MastodonSession) {
+        guard !RuntimeEnvironment.isUnitTestHost, let data = try? JSONEncoder().encode(session) else { return }
+        let query = baseQuery(acct: session.acct)
+        SecItemDelete(query as CFDictionary)
+        var add = query
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    static func load(acct: String) -> MastodonSession? {
+        var query = baseQuery(acct: acct)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(MastodonSession.self, from: data)
+    }
+
+    static func delete(acct: String) {
+        guard !RuntimeEnvironment.isUnitTestHost else { return }
+        SecItemDelete(baseQuery(acct: acct) as CFDictionary)
+    }
+
+    private static func baseQuery(acct: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: acct,
+        ]
+    }
+}
+
 struct Account: Codable, Identifiable, Hashable, Sendable {
+    /// A DID for Bluesky, the full address `name@server` for Mastodon.
     let did: String
     var handle: String
     var displayName: String?
     var avatar: String?
+    /// Missing in accounts saved before Mastodon support, which are all Bluesky.
+    var network: SocialNetwork?
     var id: String { did }
     var avatarURL: URL? { avatar.flatMap(URL.init(string:)) }
+    var resolvedNetwork: SocialNetwork { network ?? .bluesky }
+    var isMastodon: Bool { resolvedNetwork == .mastodon }
 }
 
 @MainActor
@@ -57,6 +100,7 @@ final class AccountStore {
 
     private(set) var accounts: [Account] = []
     private var clients: [String: XRPCClient] = [:]
+    private var mastodonClients: [String: MastodonClient] = [:]
 
     /// Reads public data without an account.
     let publicClient = XRPCClient(service: XRPCClient.publicService)
@@ -66,9 +110,15 @@ final class AccountStore {
               let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
               let stored = try? JSONDecoder().decode([Account].self, from: data) else { return }
         for account in stored {
-            guard let session = SessionKeychain.load(did: account.did) else { continue }
-            accounts.append(account)
-            clients[account.did] = Self.makeClient(service: session.service, session: session)
+            if account.isMastodon {
+                guard let session = MastodonKeychain.load(acct: account.did) else { continue }
+                accounts.append(account)
+                mastodonClients[account.did] = MastodonClient(session: session)
+            } else {
+                guard let session = SessionKeychain.load(did: account.did) else { continue }
+                accounts.append(account)
+                clients[account.did] = Self.makeClient(service: session.service, session: session)
+            }
         }
     }
 
@@ -78,11 +128,56 @@ final class AccountStore {
         accounts.append(account)
         clients[account.did] = client
     }
+
+    func installForTesting(_ account: Account, mastodon client: MastodonClient) {
+        accounts.append(account)
+        mastodonClients[account.did] = client
+    }
     #endif
 
+    /// The Bluesky client of an account. Nil for Mastodon accounts, which have their own.
     func client(for did: String?) -> XRPCClient? {
         guard let did else { return nil }
         return clients[did]
+    }
+
+    func mastodon(for did: String?) -> MastodonClient? {
+        guard let did else { return nil }
+        return mastodonClients[did]
+    }
+
+    /// Whatever reads for this account, on either network.
+    func reader(for did: String?) -> (any SocialReader)? {
+        client(for: did) ?? mastodon(for: did)
+    }
+
+    func network(of did: String?) -> SocialNetwork? {
+        accounts.first { $0.did == did }?.resolvedNetwork
+    }
+
+    var firstBluesky: Account? { accounts.first { !$0.isMastodon } }
+    var firstMastodon: Account? { accounts.first { $0.isMastodon } }
+
+    /// An account that can read this Mastodon person: preferably one on the same server.
+    func mastodonAccount(forActor actor: String) -> Account? {
+        let server = actor.split(separator: "@").last.map(String.init)?.lowercased()
+        return accounts.first { $0.isMastodon && $0.did.lowercased().hasSuffix("@\(server ?? "")") } ?? firstMastodon
+    }
+
+    func addMastodon(_ session: MastodonSession) async throws -> Account {
+        let client = MastodonClient(session: session)
+        let me = try await client.verifyCredentials()
+        let account = Account(
+            did: session.acct, handle: session.acct,
+            displayName: me.display_name?.isEmpty == false ? me.display_name : me.username,
+            avatar: me.avatar_static ?? me.avatar, network: .mastodon
+        )
+        MastodonKeychain.save(session)
+        accounts.removeAll { $0.did == account.did }
+        accounts.append(account)
+        mastodonClients[account.did] = client
+        persist()
+        return account
     }
 
     func login(identifier: String, password: String, authFactorToken: String?, service: URL) async throws -> Account {
@@ -93,7 +188,7 @@ final class AccountStore {
         let profile = try? await client.profile(actor: session.did)
         let account = Account(
             did: session.did, handle: session.handle,
-            displayName: profile?.displayName, avatar: profile?.avatar
+            displayName: profile?.displayName, avatar: profile?.avatar, network: .bluesky
         )
         accounts.removeAll { $0.did == account.did }
         accounts.append(account)
@@ -105,7 +200,7 @@ final class AccountStore {
     /// Keeps name and picture current, and fills them in where only the handle is known.
     func refreshDetails() async {
         for account in accounts {
-            guard let client = clients[account.did],
+            guard let client = reader(for: account.did),
                   let profile = try? await client.profile(actor: account.did),
                   let index = accounts.firstIndex(where: { $0.did == account.did }) else { continue }
             accounts[index].handle = profile.handle
@@ -120,8 +215,13 @@ final class AccountStore {
             // Best effort: the local sign-out must succeed even when offline.
             _ = try? await client.revokeSession()
         }
+        if let mastodon = mastodonClients[did] {
+            await mastodon.revokeToken()
+            MastodonKeychain.delete(acct: did)
+        }
         SessionKeychain.delete(did: did)
         clients[did] = nil
+        mastodonClients[did] = nil
         accounts.removeAll { $0.did == did }
         persist()
     }

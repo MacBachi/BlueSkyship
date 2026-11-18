@@ -35,7 +35,7 @@ enum HelpContent {
             tr("**Posten:** `⌘N`, absenden mit `⌘↩`. Bis zu 4 Bilder.", "**Posting:** `⌘N`, send with `⌘↩`. Up to 4 pictures."),
             tr("**Medien:** Klick öffnet groß, `Esc` schließt, Pfeiltasten blättern.", "**Media:** Click to enlarge, `Esc` closes, arrow keys page."),
             tr("**Tasten:** `j` `k` wandern, `l` liken, `r` antworten, `1`–`9` Spalte.", "**Keys:** `j` `k` move, `l` like, `r` reply, `1`–`9` column."),
-            tr("**Einstellungen:** `⌘,`. Sprache, Aktualisierung, Konten.", "**Settings:** `⌘,`. Language, refresh, accounts."),
+            tr("**Einstellungen:** `⌘,`. Sprache, Aktualisierung, Konten, auch Mastodon.", "**Settings:** `⌘,`. Language, refresh, accounts, Mastodon too."),
         ]
     }
 
@@ -120,6 +120,16 @@ enum HelpContent {
                 tr("Der Login öffnet diese Seite automatisch, solange noch kein Konto angemeldet ist.", "Sign-in opens that page automatically while no account is signed in yet."),
                 tr("Ohne Konto kannst du öffentliche Feeds und Profile lesen. Home, Mitteilungen, Suche, Liken und Posten brauchen ein Konto.", "Without an account you can read public feeds and profiles. Home, notifications, search, liking and posting need an account."),
                 tr("Weitere Konten fügst du über das Personen-Symbol unten links hinzu. Jede Spalte gehört zu einem Konto.", "Add more accounts with the person icon at the bottom left. Each column belongs to one account."),
+            ]),
+            HelpTopic(id: "mastodon", icon: "bubble.left.and.bubble.right", title: "Mastodon", bullets: [
+                tr("Beim Anmelden wählst du oben **Mastodon** und gibst deinen Server ein, etwa `mastodon.social`. Die Anmeldung läuft auf der Seite deines Servers im Browser. Die App sieht dein Passwort nie.", "When signing in, choose **Mastodon** at the top and enter your server, such as `mastodon.social`. You sign in on your server's page in the browser. The app never sees your password."),
+                tr("Mastodon- und Bluesky-Spalten stehen im selben Deck nebeneinander. Jede Spalte gehört zu einem Konto und damit zu einem Netzwerk.", "Mastodon and Bluesky columns share the same deck. Each column belongs to one account and so to one network."),
+                tr("Zusätzlich gibt es die Spalten **Lokal** (dein Server), **Föderiert** (alle bekannten Server) und deine **Listen**. Hashtags öffnen den Hashtag-Verlauf deines Servers.", "There are also the **Local** (your server) and **Federated** (all known servers) columns, and your **lists**. Hashtags open your server's hashtag timeline."),
+                tr("**Boosten** und **Favorisieren** liegen dort, wo bei Bluesky Repost und Like sind. Antworten bleiben im Netzwerk des Posts.", "**Boost** and **favorite** sit where repost and like are for Bluesky. Replies stay on the network of the post."),
+                tr("Im Composer wählst du die **Sichtbarkeit** und eine optionale **Inhaltswarnung**. Eine Antwort ist nie sichtbarer als der Post, auf den sie antwortet. Die Grundeinstellung steht unter `⌘,`.", "In the composer you choose the **visibility** and an optional **content warning**. A reply is never more visible than the post it answers. Set the default under `⌘,`."),
+                tr("Posts mit Inhaltswarnung bleiben verdeckt, bis du sie anklickst. Deine Filter vom Server gelten: „Ausblenden“ blendet aus, „Warnen“ verdeckt.", "Posts with a content warning stay covered until you click them. Your server filters apply: “hide” hides, “warn” covers."),
+                tr("**Direktnachrichten** sind bei Mastodon Posts, die nur die Erwähnten sehen. „Nachricht“ im Profil beginnt so einen Post, die Spalte Direktnachrichten zeigt deine Unterhaltungen.", "On Mastodon, **direct messages** are posts only the mentioned people see. “Message” on a profile starts one, and the Direct Messages column shows your conversations."),
+                tr("Umfragen werden mit Stimmen angezeigt. Abstimmen geht im Browser.", "Polls show with their votes. Voting works in the browser."),
             ]),
             HelpTopic(id: "columns", icon: "rectangle.split.3x1", title: tr("Spalten", "Columns"), bullets: [
                 tr("`⌘T` fügt eine Spalte hinzu: Home, Mitteilungen, Erwähnungen, Meine Posts, Suche, Profil, gespeicherter Feed oder ein Feed oder eine Liste per Link.", "`⌘T` adds a column: Home, notifications, mentions, My Posts, search, profile, saved feed, or a feed or list by link."),

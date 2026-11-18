@@ -25,6 +25,12 @@ struct ThreadContent: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey { case post, parent, replies }
 
+    init(parents: [PostView], post: PostView, replies: [PostView]) {
+        self.parents = parents
+        self.post = post
+        self.replies = replies
+    }
+
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         post = try container.decode(PostView.self, forKey: .post)
@@ -79,6 +85,8 @@ extension XRPCClient {
         case .messages:
             // Conversations have their own panel and never come through a timeline.
             return FeedPage(items: [], cursor: nil)
+        case .localTimeline, .federatedTimeline:
+            throw XRPCError(status: 0, code: nil, message: tr("Das gibt es nur bei Mastodon.", "Only Mastodon has this."))
         case .notifications:
             return try await notificationPage(reasons: [], cursor: cursor, limit: limitValue)
         case .mentions:

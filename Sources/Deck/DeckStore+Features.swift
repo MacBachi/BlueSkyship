@@ -17,13 +17,28 @@ extension DeckStore {
         do {
             switch confirmation {
             case .deletePost(let post):
-                guard let client = accounts.client(for: post.author.did) else { return }
-                try await client.deleteRecord(uri: post.uri)
+                if post.isMastodon {
+                    guard let client = accounts.mastodon(for: post.author.did) else { return }
+                    try await client.deleteStatus(post.uri)
+                } else {
+                    guard let client = accounts.client(for: post.author.did) else { return }
+                    try await client.deleteRecord(uri: post.uri)
+                }
                 hiddenPostURIs.insert(post.uri)
                 for feed in feeds.values {
                     feed.remove { $0.displayedPost?.uri == post.uri }
                 }
                 showToast(tr("Post gelöscht.", "Post deleted."))
+            case .mute(let person, let accountDID) where MastodonID.isActor(person.did):
+                guard let client = mastodonActor(for: accountDID) else { return }
+                try await client.accountAction(person.did, "mute")
+                hideAuthor(person.did)
+                showToast(tr("\(person.bestName) ist stummgeschaltet.", "\(person.bestName) is muted."))
+            case .block(let person, let accountDID) where MastodonID.isActor(person.did):
+                guard let client = mastodonActor(for: accountDID) else { return }
+                try await client.accountAction(person.did, "block")
+                hideAuthor(person.did)
+                showToast(tr("\(person.bestName) ist blockiert.", "\(person.bestName) is blocked."))
             case .mute(let person, let accountDID):
                 guard let actor = actingAccount(for: accountDID) else { return }
                 try await actor.client.mute(actor: person.did)
@@ -56,6 +71,10 @@ extension DeckStore {
     }
 
     func unmute(_ profile: ProfileDetail, accountDID: String?) async {
+        if MastodonID.isActor(profile.did) {
+            await undoMastodon(profile, "unmute", accountDID: accountDID)
+            return
+        }
         guard let actor = actingAccount(for: accountDID) else { return }
         do {
             try await actor.client.unmute(actor: profile.did)
@@ -67,7 +86,23 @@ extension DeckStore {
         }
     }
 
+    private func undoMastodon(_ profile: ProfileDetail, _ action: String, accountDID: String?) async {
+        guard let client = mastodonActor(for: accountDID) else { return }
+        do {
+            try await client.accountAction(profile.did, action)
+            hiddenAuthorDIDs.remove(profile.did)
+            moderationGeneration += 1
+            refreshAll()
+        } catch {
+            showToast(error.localizedDescription)
+        }
+    }
+
     func unblock(_ profile: ProfileDetail, accountDID: String?) async {
+        if MastodonID.isActor(profile.did) {
+            await undoMastodon(profile, "unblock", accountDID: accountDID)
+            return
+        }
         guard let actor = actingAccount(for: accountDID), let uri = profile.viewer?.blocking else { return }
         do {
             try await actor.client.deleteRecord(uri: uri)
@@ -80,7 +115,10 @@ extension DeckStore {
     }
 
     func toggleBookmark(_ post: PostView, accountDID: String?, update: @escaping @MainActor (PostView) -> Void) async {
-        guard let actor = actingAccount(for: accountDID) else { return }
+        let mastodon = post.isMastodon ? mastodonActor(for: accountDID) : nil
+        if post.isMastodon, mastodon == nil { return }
+        let actor = post.isMastodon ? nil : actingAccount(for: accountDID)
+        if !post.isMastodon, actor == nil { return }
         var changed = post
         var viewer = post.viewer ?? PostViewer()
         let wasBookmarked = viewer.bookmarked == true
@@ -88,10 +126,14 @@ extension DeckStore {
         changed.viewer = viewer
         update(changed)
         do {
-            if wasBookmarked {
-                try await actor.client.removeBookmark(uri: post.uri)
-            } else {
-                try await actor.client.addBookmark(post.ref)
+            if let mastodon {
+                try await mastodon.setBookmark(post.uri, !wasBookmarked)
+            } else if let actor {
+                if wasBookmarked {
+                    try await actor.client.removeBookmark(uri: post.uri)
+                } else {
+                    try await actor.client.addBookmark(post.ref)
+                }
             }
             showToast(wasBookmarked
                 ? tr("Lesezeichen entfernt.", "Bookmark removed.")
@@ -113,11 +155,12 @@ extension DeckStore {
             removeDraft(id)
             return
         }
-        let draft = SavedDraft(
+        var draft = SavedDraft(
             id: id, segments: segments, accountDID: context.accountDID,
             reply: context.effectiveReply, quote: context.effectiveQuote,
             targetLabel: context.targetLabel
         )
+        if accounts.network(of: context.accountDID) == .mastodon { draft.mastodonOptions = context.mastodonOptions }
         if let index = drafts.firstIndex(where: { $0.id == id }) {
             drafts[index] = draft
         } else {
@@ -177,6 +220,7 @@ extension DeckStore {
             savedTargetLabel: draft.targetLabel,
             initialSegments: draft.segments,
             initialImages: loadDraftImages(draft.id),
+            mastodonOptions: draft.mastodonOptions ?? MastodonPostOptions(visibility: settings.mastodonVisibility),
             draftID: draft.id
         )
     }
@@ -228,7 +272,8 @@ extension DeckStore {
             laterImages: Self.laterImages(images), accountDID: did,
             reply: context.effectiveReply, quote: context.effectiveQuote,
             langs: settings.effectivePostLanguage.map { [$0] } ?? [],
-            targetLabel: context.targetLabel
+            targetLabel: context.targetLabel,
+            mastodonOptions: accounts.network(of: did) == .mastodon ? context.mastodonOptions : nil
         ))
         scheduledPosts.sort { $0.date < $1.date }
         saveScheduledPosts()
@@ -248,7 +293,9 @@ extension DeckStore {
     }
 
     func send(scheduled post: ScheduledPost) async {
-        guard let client = accounts.client(for: post.accountDID) else {
+        let client = accounts.client(for: post.accountDID)
+        let mastodon = accounts.mastodon(for: post.accountDID)
+        guard client != nil || mastodon != nil else {
             markFailed(post, message: tr("Das Konto ist nicht mehr angemeldet.", "The account is no longer signed in."))
             return
         }
@@ -256,9 +303,17 @@ extension DeckStore {
         saveScheduledPosts()
         var first = PostDraft(text: "", langs: post.langs, reply: post.reply, quote: post.quote, images: post.images)
         first.text = post.segments.first ?? ""
-        let result = await client.createThread(
-            texts: post.segments, first: first, laterImages: post.laterImages ?? [:], repo: post.accountDID
-        )
+        let result: ThreadResult
+        if let mastodon {
+            result = await mastodon.createThread(
+                texts: post.segments, first: first, laterImages: post.laterImages ?? [:],
+                options: post.mastodonOptions ?? MastodonPostOptions(visibility: settings.mastodonVisibility)
+            )
+        } else {
+            result = await client!.createThread(
+                texts: post.segments, first: first, laterImages: post.laterImages ?? [:], repo: post.accountDID
+            )
+        }
         if let error = result.error {
             // Only what did not go out comes back, attached to what did.
             var rest = post
@@ -314,12 +369,21 @@ extension DeckStore {
 
     func pollNotifications() async {
         for account in accounts.accounts {
+            if let client = accounts.mastodon(for: account.did) {
+                if let count = try? await client.unreadNotificationCount() {
+                    unreadCounts[account.did] = count
+                }
+                if settings.showSystemNotifications, let items = try? await client.latestNotifications(limit: 20) {
+                    await deliverSystemNotifications(account: account, items: items)
+                }
+                continue
+            }
             guard let client = accounts.client(for: account.did) else { continue }
             if let count = try? await client.unreadNotificationCount() {
                 unreadCounts[account.did] = count
             }
-            if settings.showSystemNotifications {
-                await deliverSystemNotifications(account: account, client: client)
+            if settings.showSystemNotifications, let items = try? await client.latestNotifications(limit: 20) {
+                await deliverSystemNotifications(account: account, items: items)
             }
         }
         updateDockBadge()
@@ -333,9 +397,14 @@ extension DeckStore {
     }
 
     func markNotificationsRead(accountDID: String) async {
-        guard let client = accounts.client(for: accountDID) else { return }
         do {
-            try await client.markNotificationsSeen()
+            if let mastodon = accounts.mastodon(for: accountDID) {
+                try await mastodon.markNotificationsSeen()
+            } else if let client = accounts.client(for: accountDID) {
+                try await client.markNotificationsSeen()
+            } else {
+                return
+            }
             unreadCounts[accountDID] = 0
             updateDockBadge()
         } catch {
@@ -351,8 +420,7 @@ extension DeckStore {
         }
     }
 
-    private func deliverSystemNotifications(account: Account, client: XRPCClient) async {
-        guard let items = try? await client.latestNotifications(limit: 20) else { return }
+    private func deliverSystemNotifications(account: Account, items: [RawNotification]) async {
         let key = "notifications.mark.\(account.did)"
         let result = NotificationDigest.newItems(items, since: UserDefaults.standard.string(forKey: key))
         if let mark = result.mark { UserDefaults.standard.set(mark, forKey: key) }
@@ -523,6 +591,11 @@ extension DeckStore {
 
     /// Opens a chat from a profile. Errors usually mean the app password lacks the chat permission.
     func openConversation(with did: String, accountDID: String?) async -> (Conversation, String)? {
+        // Mastodon has no separate chat: a direct message is a post only the people named in it can see.
+        if MastodonID.isActor(did) {
+            startCompose(accountDID: accountDID, text: "@\(did) ", visibility: .direct)
+            return nil
+        }
         guard let actor = actingAccount(for: accountDID) else { return nil }
         do {
             return (try await actor.client.conversation(with: did), actor.did)

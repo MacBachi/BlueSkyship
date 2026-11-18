@@ -16,6 +16,7 @@ struct SavedDraft: Codable, Identifiable, Hashable, Sendable {
     var quote: StrongRef?
     var targetLabel: String?
     var updatedAt = Date()
+    var mastodonOptions: MastodonPostOptions?
 
     var preview: String {
         segments.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
@@ -45,6 +46,7 @@ struct ScheduledPost: Codable, Identifiable, Sendable {
     var langs: [String] = []
     var targetLabel: String?
     var lastError: String?
+    var mastodonOptions: MastodonPostOptions?
 
     func due(now: Date = Date()) -> Due {
         if lastError != nil { return .overdue }
@@ -76,7 +78,7 @@ enum DeckConfirmation: Identifiable, Hashable {
     var message: String {
         switch self {
         case .deletePost:
-            return tr("Der Post wird von Bluesky entfernt. Das lässt sich nicht rückgängig machen.", "The post is removed from Bluesky. This cannot be undone.")
+            return tr("Der Post wird vom Server entfernt. Das lässt sich nicht rückgängig machen.", "The post is removed from the server. This cannot be undone.")
         case .mute:
             return tr("Du siehst die Posts dieser Person nicht mehr. Sie erfährt nichts davon. Rückgängig machst du es im Profil.", "You no longer see this person's posts. They are not told. Undo it on their profile.")
         case .block:
@@ -174,6 +176,10 @@ extension RawNotification {
         case "mention": return tr("hat dich erwähnt", "mentioned you")
         case "quote": return tr("hat dich zitiert", "quoted you")
         case "starterpack-joined": return tr("ist über dein Starter Pack beigetreten", "joined through your starter pack")
+        case "follow-request": return tr("möchte dir folgen", "wants to follow you")
+        case "status": return tr("hat etwas gepostet", "posted something")
+        case "update": return tr("hat einen Post bearbeitet, mit dem du interagiert hast", "edited a post you interacted with")
+        case "poll": return tr("Eine Umfrage ist beendet", "A poll has ended")
         default: return tr("hat mit dir interagiert", "interacted with you")
         }
     }

@@ -17,11 +17,7 @@ struct ProfilePanel: View {
     @State private var feed = ColumnFeed()
 
     /// Prefers an account, because only then does the server say whether you already follow this person.
-    private var client: XRPCClient {
-        deck.accounts.client(for: accountDID)
-            ?? deck.accounts.client(for: deck.accounts.accounts.first?.did)
-            ?? deck.accounts.publicClient
-    }
+    private var client: any SocialReader { deck.reader(for: accountDID) }
 
     private var tabKind: ColumnKind { .profileTab(actor: actor, tab: tab) }
 
@@ -173,7 +169,7 @@ struct ProfilePanel: View {
             if !isOwnProfile {
                 Button(tr("Nachricht", "Message")) {
                     Task {
-                        if let (conversation, did) = await deck.openConversation(with: profile.did, accountDID: accountDID) {
+                        if let (conversation, did) = await deck.openConversation(with: profile.did, accountDID: accountDID ?? deck.defaultAccountDID(for: .profileTab(actor: profile.did, tab: .posts))) {
                             openRoute(.conversation(conversation, accountDID: did))
                         }
                     }

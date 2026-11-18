@@ -49,9 +49,7 @@ struct PeoplePanel: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
-    private var client: XRPCClient {
-        deck.accounts.client(for: accountDID) ?? deck.accounts.publicClient
-    }
+    private var client: any SocialReader { deck.reader(for: accountDID) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -107,6 +105,8 @@ struct PersonSuggestions: View {
     let term: String
     /// Someone who makes no sense as a result here, such as the signed-in account when writing a message.
     var excluding: String?
+    /// The account to search with, which decides the network. The first Bluesky account otherwise.
+    var accountDID: String?
     let onPick: (Profile) -> Void
 
     @State private var people: [Profile] = []
@@ -142,7 +142,7 @@ struct PersonSuggestions: View {
             }
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            let client = deck.accounts.client(for: deck.accounts.accounts.first?.did) ?? deck.accounts.publicClient
+            let client = deck.reader(for: accountDID)
             if let found = try? await client.suggestPeople(matching: query), !Task.isCancelled {
                 people = found
             }

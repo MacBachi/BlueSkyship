@@ -22,8 +22,9 @@ struct ColumnView: View {
     @FocusState private var isSearchFocused: Bool
 
     private var feed: ColumnFeed { deck.feed(for: column) }
+    /// Bluesky's chat has its own panel. Mastodon's direct messages are posts and show as a timeline.
     private var isMessagesColumn: Bool {
-        if case .messages = column.kind { return true }
+        if case .messages = column.kind { return deck.accounts.network(of: column.accountDID) != .mastodon }
         return false
     }
     private var account: Account? { deck.accounts.accounts.first { $0.did == column.accountDID } }
@@ -395,7 +396,7 @@ struct ColumnView: View {
                 Button(tr("Anmelden", "Sign In")) { deck.isLoggingIn = true }
             }
             .frame(maxHeight: .infinity)
-        } else if case .messages = column.kind {
+        } else if isMessagesColumn {
             ConversationsPanel(accountDID: column.accountDID ?? "") {
                 routes.append(.conversation($0, accountDID: column.accountDID ?? ""))
             }

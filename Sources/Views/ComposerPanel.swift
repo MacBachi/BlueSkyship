@@ -52,9 +52,32 @@ struct ComposerPanel: View {
     @State private var isDropTarget = false
     @State private var isPlanning = false
     @State private var scheduledDate = Date().addingTimeInterval(3600)
+    /// What the account's Mastodon server allows. Asked once the composer knows the account.
+    @State private var mastodonLimit = 500
+    @State private var mastodonURLLength = 23
 
     private let draftID: UUID
-    private static let limit = 300
+    private static let blueskyLimit = 300
+
+    private var isMastodon: Bool { deck.accounts.network(of: deck.compose?.accountDID) == .mastodon }
+
+    private var limit: Int { isMastodon ? mastodonLimit : Self.blueskyLimit }
+
+    /// Bluesky counts characters; Mastodon counts every link as the same length and a mention by its name.
+    private func length(_ text: String) -> Int {
+        isMastodon ? MastodonClient.characterCount(text, urlLength: mastodonURLLength) : text.count
+    }
+
+    /// A reply or quote stays on the network of the post it answers.
+    private var selectableAccounts: [Account] {
+        let all = deck.accounts.accounts
+        guard let target = deck.compose?.replyTo ?? deck.compose?.quote else {
+            guard deck.compose?.savedReply != nil || deck.compose?.savedQuote != nil,
+                  let network = deck.accounts.network(of: deck.compose?.accountDID) else { return all }
+            return all.filter { $0.resolvedNetwork == network }
+        }
+        return all.filter { $0.isMastodon == target.isMastodon }
+    }
     private static let maxImages = 4
     /// The limit named by the official definition of video embeds.
     private static let maxVideoBytes = 300_000_000
@@ -84,7 +107,7 @@ struct ComposerPanel: View {
 
     private var canSend: Bool {
         guard let context = deck.compose, !isSending, !isPreparingImages, !isMissingAltText else { return false }
-        guard segments.allSatisfy({ $0.count <= Self.limit }) else { return false }
+        guard segments.allSatisfy({ length($0) <= limit }) else { return false }
         // A post needs text unless it carries something else.
         for index in segments.indices.dropFirst() where isBlank(segments[index]) && attachments[index].isEmpty {
             return false
@@ -112,16 +135,18 @@ struct ComposerPanel: View {
                 .accessibilityLabel(tr("Schließen", "Close"))
             }
 
-            if deck.accounts.accounts.count > 1 {
+            if selectableAccounts.count > 1 {
                 Picker(tr("Konto", "Account"), selection: Binding(
                     get: { deck.compose?.accountDID ?? "" },
                     set: { deck.compose?.accountDID = $0 }
                 )) {
-                    ForEach(deck.accounts.accounts) { Text("@\($0.handle)").tag($0.did) }
+                    ForEach(selectableAccounts) { account in
+                        Text("@\(account.handle) · \(account.resolvedNetwork.label)").tag(account.did)
+                    }
                 }
                 .labelsHidden()
-            } else if let account = deck.accounts.accounts.first {
-                Text("@\(account.handle)").font(.caption).foregroundStyle(.secondary)
+            } else if let account = deck.accounts.accounts.first(where: { $0.did == deck.compose?.accountDID }) {
+                Text("@\(account.handle) · \(account.resolvedNetwork.label)").font(.caption).foregroundStyle(.secondary)
             }
 
             target
@@ -144,7 +169,9 @@ struct ComposerPanel: View {
                 }
             }
 
-            if deck.compose?.effectiveReply == nil {
+            if isMastodon {
+                mastodonOptions
+            } else if deck.compose?.effectiveReply == nil {
                 Picker(tr("Wer darf antworten", "Who can reply"), selection: $replyRule) {
                     ForEach(ReplyRule.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
@@ -165,6 +192,16 @@ struct ComposerPanel: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.bar)
         .onAppear { focusedSegment = 0 }
+        .task(id: deck.compose?.accountDID) {
+            guard let client = deck.accounts.mastodon(for: deck.compose?.accountDID),
+                  let statuses = try? await client.instanceInfo().configuration?.statuses else { return }
+            mastodonLimit = statuses.max_characters ?? 500
+            mastodonURLLength = statuses.characters_reserved_per_url ?? 23
+        }
+        .onChange(of: deck.compose?.accountDID) { _, _ in
+            // A reply rule exists only on Bluesky.
+            if isMastodon { replyRule = .everyone }
+        }
         .onChange(of: segments) { _, new in
             if let context = deck.compose {
                 deck.saveDraft(id: draftID, segments: new, context: context)
@@ -280,14 +317,41 @@ struct ComposerPanel: View {
                 if isPreparingImages, focusedSegment == index {
                     ProgressView().controlSize(.small)
                 }
-                Text("\(Self.limit - segments[index].count)")
+                Text("\(limit - length(segments[index]))")
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(segments[index].count > Self.limit ? Color.red : Color.secondary)
+                    .foregroundStyle(length(segments[index]) > limit ? Color.red : Color.secondary)
             }
             attachmentList(index)
             if index == 0 {
                 videoRow
             }
+        }
+    }
+
+    /// Who sees the post, and an optional warning that covers it.
+    private var mastodonOptions: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker(tr("Sichtbarkeit", "Visibility"), selection: Binding(
+                get: { deck.compose?.mastodonOptions.visibility ?? .public },
+                set: { deck.compose?.mastodonOptions.visibility = $0 }
+            )) {
+                ForEach(MastodonVisibility.allCases, id: \.self) { visibility in
+                    Label(visibility.label, systemImage: visibility.systemImage).tag(visibility)
+                }
+            }
+            .font(.caption)
+            .help(tr("Wer diesen Post sehen kann", "Who can see this post"))
+            TextField(
+                tr("Inhaltswarnung", "Content warning"),
+                text: Binding(
+                    get: { deck.compose?.mastodonOptions.spoilerText ?? "" },
+                    set: { deck.compose?.mastodonOptions.spoilerText = $0 }
+                ),
+                prompt: Text(tr("Inhaltswarnung (optional)", "Content warning (optional)"))
+            )
+            .textFieldStyle(.roundedBorder)
+            .font(.caption)
+            .help(tr("Der Text des Posts bleibt verdeckt, bis jemand die Warnung anklickt.", "The post stays covered until someone clicks the warning."))
         }
     }
 

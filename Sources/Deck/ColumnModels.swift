@@ -35,6 +35,10 @@ enum ColumnKind: Codable, Hashable, Sendable {
     case feed(uri: String, name: String)
     case list(uri: String, name: String)
     case search(query: String)
+    /// Everything public from people on the Mastodon server of the account.
+    case localTimeline
+    /// Everything public that the account's Mastodon server knows of.
+    case federatedTimeline
 
     var isOwnPosts: Bool {
         if case .ownPosts = self { return true }
@@ -44,8 +48,10 @@ enum ColumnKind: Codable, Hashable, Sendable {
     var requiresAccount: Bool {
         switch self {
         // The public API answers searchPosts with 403, so search needs an account too.
-        case .home, .notifications, .mentions, .search, .ownPosts, .likes, .bookmarks, .messages: return true
-        case .author, .profileTab, .feed, .list: return false
+        case .home, .notifications, .mentions, .search, .ownPosts, .likes, .bookmarks, .messages,
+             .localTimeline, .federatedTimeline: return true
+        case .author(let actor), .profileTab(let actor, _): return MastodonID.isActor(actor)
+        case .feed, .list: return false
         }
     }
 
@@ -61,6 +67,8 @@ enum ColumnKind: Codable, Hashable, Sendable {
         case .author(let actor), .profileTab(let actor, _): return "@\(actor)"
         case .feed(_, let name), .list(_, let name): return name
         case .search(let query): return query
+        case .localTimeline: return tr("Lokal", "Local")
+        case .federatedTimeline: return tr("Föderiert", "Federated")
         }
     }
 
@@ -77,6 +85,8 @@ enum ColumnKind: Codable, Hashable, Sendable {
         case .feed: return "number"
         case .list: return "list.bullet"
         case .search: return "magnifyingglass"
+        case .localTimeline: return "person.3"
+        case .federatedTimeline: return "globe"
         }
     }
 }

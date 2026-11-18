@@ -44,6 +44,7 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
         case .author, .profileTab: return .people
         case .search: return .searches
         case .feed, .list: return .feeds
+        case .localTimeline, .federatedTimeline: return .feeds
         case .home, .notifications, .mentions, .ownPosts, .likes, .bookmarks, .messages: return .other
         }
     }
@@ -57,7 +58,8 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
     /// Whether this kind of view belongs to one account rather than to whoever is signed in.
     static func isTiedToAccount(_ kind: ColumnKind) -> Bool {
         switch kind {
-        case .home, .notifications, .mentions, .ownPosts, .likes, .bookmarks, .messages: return true
+        case .home, .notifications, .mentions, .ownPosts, .likes, .bookmarks, .messages,
+             .localTimeline, .federatedTimeline: return true
         case .author, .profileTab, .feed, .list, .search: return false
         }
     }

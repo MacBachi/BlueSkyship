@@ -4,12 +4,19 @@ import Foundation
 /// Serves canned responses by host, so tests running in parallel do not see each other's traffic.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) -> (Int, Data)
+    typealias HeaderHandler = @Sendable (URLRequest) -> [String: String]
 
     nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
+    nonisolated(unsafe) private static var headerHandlers: [String: HeaderHandler] = [:]
     private static let lock = NSLock()
 
     static func register(host: String, handler: @escaping Handler) {
         lock.withLock { handlers[host] = handler }
+    }
+
+    /// Extra response headers, such as Mastodon's `Link` for the next page.
+    static func registerHeaders(host: String, handler: @escaping HeaderHandler) {
+        lock.withLock { headerHandlers[host] = handler }
     }
 
     static func session() -> URLSession {
@@ -41,8 +48,9 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let host = request.url?.host ?? ""
         let handler = Self.lock.withLock { Self.handlers[host] }
+        let headerHandler = Self.lock.withLock { Self.headerHandlers[host] }
         let (status, data) = handler?(request) ?? (500, Data())
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headerHandler?(request))!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
