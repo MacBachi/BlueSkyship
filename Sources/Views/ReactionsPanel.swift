@@ -21,7 +21,7 @@ struct ReactionsPanel: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
-    private var client: any SocialReader { deck.reader(for: accountDID) }
+    private var client: any SocialReader { deck.reader(for: accountDID, postURI: post.uri) }
 
     private func label(_ tab: Tab) -> String {
         switch tab {

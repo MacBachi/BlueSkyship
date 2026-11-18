@@ -49,7 +49,7 @@ struct PeoplePanel: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
-    private var client: any SocialReader { deck.reader(for: accountDID) }
+    private var client: any SocialReader { deck.reader(for: accountDID, actor: actor) }
 
     var body: some View {
         VStack(spacing: 0) {

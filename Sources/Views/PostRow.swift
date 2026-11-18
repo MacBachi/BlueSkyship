@@ -89,8 +89,11 @@ struct PostRow: View {
         return nil
     }
 
+    /// The account that found this post. In a mixed search, that is the post's own, not the column's.
+    private var actingDID: String? { post.sourceAccountDID ?? accountDID }
+
     private var moderation: ModerationPrefs.Decision {
-        deck.moderationDecision(for: post, accountDID: accountDID)
+        deck.moderationDecision(for: post, accountDID: actingDID)
     }
 
     var body: some View {
@@ -176,6 +179,7 @@ struct PostRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .contentShape(Rectangle())
+        .modifier(AccountMark(accountDID: actingDID))
         .onTapGesture { onOpenThread(post) }
         .contextMenu { contextItems }
     }
@@ -268,15 +272,15 @@ struct PostRow: View {
             action(
                 "bubble.left", count: post.replyCount, label: tr("Antworten", "Reply"), tint: nil
             ) {
-                deck.startCompose(replyTo: post, accountDID: accountDID)
+                deck.startCompose(replyTo: post, accountDID: actingDID)
             }
             Spacer()
             Menu {
                 Button(repostLabel) {
-                    Task { await deck.toggleRepost(post, accountDID: accountDID, update: onUpdate) }
+                    Task { await deck.toggleRepost(post, accountDID: actingDID, update: onUpdate) }
                 }
                 Button(tr("Zitieren", "Quote")) {
-                    deck.startCompose(quote: post, accountDID: accountDID)
+                    deck.startCompose(quote: post, accountDID: actingDID)
                 }
             } label: {
                 actionLabel(
@@ -297,7 +301,7 @@ struct PostRow: View {
                 label: likeLabel,
                 tint: post.viewer?.like != nil ? .pink : nil
             ) {
-                Task { await deck.toggleLike(post, accountDID: accountDID, update: onUpdate) }
+                Task { await deck.toggleLike(post, accountDID: actingDID, update: onUpdate) }
             }
             Spacer()
             Menu {
@@ -321,7 +325,7 @@ struct PostRow: View {
     /// One list for both menus: the one on the post and the one on its selectable text.
     private var menuEntries: [PostMenuEntry] {
         let post = post
-        let accountDID = accountDID
+        let accountDID = actingDID
         let deck = deck
         let update = onUpdate
         var entries = deck.personMenuEntries(person: post.author, accountDID: accountDID, openProfile: openProfile)
@@ -444,6 +448,7 @@ struct NotificationRow: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .contentShape(Rectangle())
+            .modifier(AccountMark(accountDID: accountDID))
             .onTapGesture {
                 if let post = item.post {
                     onOpenThread(post)

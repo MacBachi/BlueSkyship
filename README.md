@@ -21,7 +21,7 @@
 ## Features
 
 - **Columns:** home, notifications, mentions, searches, profiles, feeds, lists, likes, bookmarks and direct messages. Move and resize them freely, and see at a glance which columns are out of view.
-- **Bluesky and Mastodon side by side:** columns of both networks in the same deck, each tied to its account. Mastodon adds local and federated timelines, lists, visibility and content warnings.
+- **Bluesky and Mastodon side by side:** columns of both networks in the same deck, each tied to its account. Searches and hashtags can mix both networks in one column. Each account has a colour, and a thin strip on every post shows where it came from. Mastodon adds local and federated timelines, lists, visibility and content warnings.
 - **Several decks:** switch between sets of columns with `⌘1` to `⌘9`.
 - **Filters per column:** only certain words, hide words or `@handles`, only posts with media, no reposts, no replies. Filters run locally.
 - **Favorites:** people, hashtags, searches, feeds and lists within reach, without taking up a column. Pin one when you want it to stay.

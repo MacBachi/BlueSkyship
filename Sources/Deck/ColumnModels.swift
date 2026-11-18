@@ -40,6 +40,11 @@ enum ColumnKind: Codable, Hashable, Sendable {
     /// Everything public that the account's Mastodon server knows of.
     case federatedTimeline
 
+    var isSearch: Bool {
+        if case .search = self { return true }
+        return false
+    }
+
     var isOwnPosts: Bool {
         if case .ownPosts = self { return true }
         return false

@@ -87,6 +87,8 @@ struct Account: Codable, Identifiable, Hashable, Sendable {
     var avatar: String?
     /// Missing in accounts saved before Mastodon support, which are all Bluesky.
     var network: SocialNetwork?
+    /// Chosen in Settings. Without a choice, the app picks one by position.
+    var color: AccountColor?
     var id: String { did }
     var avatarURL: URL? { avatar.flatMap(URL.init(string:)) }
     var resolvedNetwork: SocialNetwork { network ?? .bluesky }
@@ -207,6 +209,12 @@ final class AccountStore {
             accounts[index].displayName = profile.displayName
             accounts[index].avatar = profile.avatar
         }
+        persist()
+    }
+
+    func setColor(_ color: AccountColor, for did: String) {
+        guard let index = accounts.firstIndex(where: { $0.did == did }) else { return }
+        accounts[index].color = color
         persist()
     }
 

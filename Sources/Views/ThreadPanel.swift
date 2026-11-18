@@ -129,7 +129,7 @@ struct ThreadPanel: View {
     private func load() async {
         thread = nil
         errorMessage = nil
-        let client = deck.reader(for: accountDID)
+        let client = deck.reader(for: accountDID, postURI: root.uri)
         do {
             thread = try await client.thread(uri: root.uri)
         } catch is CancellationError {

@@ -360,6 +360,8 @@ struct PostView: Decodable, Hashable, Sendable, Identifiable {
     var labels: [ContentLabel]?
     /// Set for posts read from Mastodon.
     var mastodon: MastodonPostInfo?
+    /// The account that found this post in a column mixing several accounts. Acting on it goes through that account.
+    var sourceAccountDID: String?
 
     var id: String { uri }
     var ref: StrongRef { StrongRef(uri: uri, cid: cid) }

@@ -238,7 +238,11 @@ struct AddColumnSheet: View {
             Text(tr("Spalte hinzufügen", "Add Column")).font(.title2.weight(.semibold))
             Form {
                 Picker(tr("Konto", "Account"), selection: $accountDID) {
-                    if !choice.requiresAccount {
+                    if choice == .search, !accounts.isEmpty {
+                        Text(deck.hasBothNetworks
+                            ? tr("Alle Netzwerke (gemischt)", "All networks (mixed)")
+                            : tr("Automatisch", "Automatic")).tag(String?.none)
+                    } else if !choice.requiresAccount {
                         Text(tr("Ohne Konto (öffentlich)", "No account (public)")).tag(String?.none)
                     }
                     ForEach(accounts) { Text("@\($0.handle) · \($0.resolvedNetwork.label)").tag(String?.some($0.did)) }
@@ -283,7 +287,12 @@ struct AddColumnSheet: View {
         }
         .onChange(of: choice) { _, new in
             errorMessage = nil
-            if new.requiresAccount, accountDID == nil { accountDID = accounts.first?.did }
+            if new == .search, deck.hasBothNetworks {
+                // A search finds the most when it looks at both networks.
+                accountDID = nil
+            } else if new.requiresAccount, accountDID == nil {
+                accountDID = accounts.first?.did
+            }
         }
         .onChange(of: accountDID) { _, _ in
             // Each network offers different columns.
@@ -340,7 +349,7 @@ struct AddColumnSheet: View {
     private var trimmedInput: String { input.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var isComplete: Bool {
-        if choice.requiresAccount, accountDID == nil { return false }
+        if choice.requiresAccount, accountDID == nil, !(choice == .search && !accounts.isEmpty) { return false }
         switch choice {
         case .home, .notifications, .mentions, .ownPosts, .likes, .bookmarks, .messages, .localTimeline, .federatedTimeline: return true
         case .search, .author, .link: return !trimmedInput.isEmpty

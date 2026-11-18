@@ -459,17 +459,17 @@ extension DeckStore {
         case .like:
             guard let (column, post) = focusedPost() else { return true }
             let feed = feed(for: column)
-            Task { await toggleLike(post, accountDID: column.accountDID) { feed.replace(post: $0) } }
+            Task { await toggleLike(post, accountDID: post.sourceAccountDID ?? column.accountDID) { feed.replace(post: $0) } }
         case .repost:
             guard let (column, post) = focusedPost() else { return true }
             let feed = feed(for: column)
-            Task { await toggleRepost(post, accountDID: column.accountDID) { feed.replace(post: $0) } }
+            Task { await toggleRepost(post, accountDID: post.sourceAccountDID ?? column.accountDID) { feed.replace(post: $0) } }
         case .reply:
             guard let (column, post) = focusedPost() else { return true }
-            startCompose(replyTo: post, accountDID: column.accountDID)
+            startCompose(replyTo: post, accountDID: post.sourceAccountDID ?? column.accountDID)
         case .quote:
             guard let (column, post) = focusedPost() else { return true }
-            startCompose(quote: post, accountDID: column.accountDID)
+            startCompose(quote: post, accountDID: post.sourceAccountDID ?? column.accountDID)
         }
         return true
     }

@@ -635,3 +635,110 @@ struct MastodonDeckTests {
         #expect(deck.unreadCounts[FakeMastodon.me] == 7)
     }
 }
+
+@MainActor
+@Suite("Mixed searches and account colours")
+struct MixedSearchTests {
+    /// A Bluesky server that answers searches with one post at a fixed time.
+    private func blueskyServer(failing: Bool = false) -> (host: String, client: XRPCClient) {
+        let host = "bsky-\(UUID().uuidString.prefix(8).lowercased()).test"
+        StubProtocol.register(host: host) { request in
+            if failing { return (502, Data(#"{"error":"Down"}"#.utf8)) }
+            let cursor = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "cursor" }?.value
+            let post = FakeBluesky.post(cursor == nil ? "b1" : "b2", text: "#swift von Bluesky")
+                .replacingOccurrences(of: "2026-01-01T00:00:00.000Z", with: cursor == nil ? "2026-11-01T12:00:00.000Z" : "2026-10-01T12:00:00.000Z")
+            return (200, Data(#"{"posts":[\#(post)]\#(cursor == nil ? #","cursor":"next-b""# : "")}"#.utf8))
+        }
+        let session = Session(did: "did:plc:me", handle: "me.test", accessJwt: "a", refreshJwt: "r", service: URL(string: "https://\(host)")!)
+        return (host, XRPCClient(service: session.service, session: session, transport: StubProtocol.session()))
+    }
+
+    private func deckWithBoth(blueskyFails: Bool = false) -> (DeckStore, FakeMastodon) {
+        let mastodon = FakeMastodon()
+        mastodon.routes["GET /api/v1/timelines/tag/swift"] = (200, "[\(FakeMastodon.status("5"))]")
+        mastodon.linkHeader["/api/v1/timelines/tag/swift"] = "<https://x.test/?max_id=4>; rel=\"next\""
+        mastodon.start()
+        let deck = DeckStore()
+        deck.accounts.installForTesting(Account(did: "did:plc:me", handle: "me.test"), client: blueskyServer(failing: blueskyFails).client)
+        deck.accounts.installForTesting(
+            Account(did: FakeMastodon.me, handle: FakeMastodon.me, network: .mastodon), mastodon: mastodon.client()
+        )
+        return (deck, mastodon)
+    }
+
+    @Test func aSearchWithoutAccountShowsBothNetworksNewestFirst() async throws {
+        let (deck, _) = deckWithBoth()
+        let column = Column(kind: .search(query: "#swift"))
+        #expect(deck.isMixed(column))
+        let reader = try #require(deck.readClient(for: column))
+        let page = try await reader.fetchPage(kind: column.kind, cursor: nil)
+        let posts = page.items.compactMap(\.displayedPost)
+        // Bluesky's post is from 1 November 12:00, Mastodon's from 1 November 10:00.
+        #expect(posts.map(\.uri) == ["at://did:plc:alice/app.bsky.feed.post/b1", "mastodon://social.test/statuses/5"])
+        #expect(posts.map(\.sourceAccountDID) == ["did:plc:me", FakeMastodon.me])
+
+        let next = try #require(MixedReader.decode(page.cursor))
+        #expect(next.next == ["did:plc:me": "next-b", FakeMastodon.me: "4"])
+    }
+
+    @Test func laterPagesOnlyAskWhoHasMore() async throws {
+        let (deck, mastodon) = deckWithBoth()
+        let reader = try #require(deck.readClient(for: Column(kind: .search(query: "#swift"))))
+        let cursor = MixedReader.encode(MixedReader.Cursor(next: ["did:plc:me": "next-b"]))
+        let page = try await reader.fetchPage(kind: .search(query: "#swift"), cursor: cursor)
+        #expect(page.items.compactMap(\.displayedPost).map(\.uri) == ["at://did:plc:alice/app.bsky.feed.post/b2"])
+        #expect(page.cursor == nil)
+        #expect(mastodon.requests.isEmpty)
+    }
+
+    @Test func oneNetworkDownStillShowsTheOther() async throws {
+        let (deck, _) = deckWithBoth(blueskyFails: true)
+        let reader = try #require(deck.readClient(for: Column(kind: .search(query: "#swift"))))
+        let page = try await reader.fetchPage(kind: .search(query: "#swift"), cursor: nil)
+        #expect(page.items.count == 1)
+    }
+
+    @Test func actingOnAMixedPostUsesItsOwnAccount() async throws {
+        let (deck, mastodon) = deckWithBoth()
+        let reader = try #require(deck.readClient(for: Column(kind: .search(query: "#swift"))))
+        let page = try await reader.fetchPage(kind: .search(query: "#swift"), cursor: nil)
+        let post = try #require(page.items.compactMap(\.displayedPost).first { $0.isMastodon })
+        await deck.toggleLike(post, accountDID: post.sourceAccountDID) { _ in }
+        #expect(mastodon.requests.contains { $0.method == "POST" && $0.path == "/api/v1/statuses/5/favourite" })
+        deck.startCompose(replyTo: post, accountDID: post.sourceAccountDID)
+        #expect(deck.compose?.accountDID == FakeMastodon.me)
+    }
+
+    @Test func searchesAndTheirFavoritesMixButPeopleDoNot() {
+        let (deck, _) = deckWithBoth()
+        #expect(deck.defaultAccountDID(for: .search(query: "#swift")) == nil)
+        #expect(deck.defaultAccountDID(for: .profileTab(actor: "anna@social.test", tab: .posts)) == FakeMastodon.me)
+        #expect(deck.defaultAccountDID(for: .likes(actor: "did:plc:me")) == "did:plc:me")
+        deck.addFavorite(kind: .search(query: "#swift"), title: "#swift", accountDID: FakeMastodon.me)
+        #expect(deck.favorites.last?.accountDID == nil)
+        #expect(deck.previewColumn == nil)
+        deck.togglePreview(deck.favorites.last!)
+        #expect(deck.previewColumn?.accountDID == nil)
+        #expect(deck.previewColumn.map(deck.isMixed) == true)
+    }
+
+    @Test func aHashtagInAMixedColumnOpensAMixedColumn() {
+        let (deck, _) = deckWithBoth()
+        let handled = deck.handleInternalLink(URL(string: "bskyship://tag?v=swift")!, accountDID: nil)
+        #expect(handled)
+        #expect(deck.columns.last?.kind == .search(query: "#swift"))
+        #expect(deck.columns.last?.accountDID == nil)
+    }
+
+    @Test func everyAccountGetsItsOwnColourUntilOneIsChosen() {
+        let (deck, _) = deckWithBoth()
+        let first = deck.accounts.color(for: "did:plc:me")
+        let second = deck.accounts.color(for: FakeMastodon.me)
+        #expect(first != nil && second != nil && first != second)
+        deck.accounts.setColor(.orange, for: FakeMastodon.me)
+        #expect(deck.accounts.color(for: FakeMastodon.me) == .orange)
+        #expect(deck.accounts.color(for: "did:plc:me") != .orange)
+        #expect(deck.accounts.color(for: "did:plc:unknown") == nil)
+    }
+}

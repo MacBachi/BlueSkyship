@@ -17,7 +17,7 @@ struct ProfilePanel: View {
     @State private var feed = ColumnFeed()
 
     /// Prefers an account, because only then does the server say whether you already follow this person.
-    private var client: any SocialReader { deck.reader(for: accountDID) }
+    private var client: any SocialReader { deck.reader(for: accountDID, actor: actor) }
 
     private var tabKind: ColumnKind { .profileTab(actor: actor, tab: tab) }
 

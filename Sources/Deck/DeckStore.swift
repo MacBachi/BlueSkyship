@@ -171,14 +171,56 @@ final class DeckStore {
         if let did = column.accountDID {
             return accounts.reader(for: did)
         }
+        if isMixed(column) { return mixedReader }
         return column.kind.requiresAccount ? nil : accounts.publicClient
     }
+
+    /// A search without its own account searches every network there is an account for.
+    func isMixed(_ column: Column) -> Bool {
+        guard column.accountDID == nil, case .search = column.kind else { return false }
+        return true
+    }
+
+    /// The first account of each network. More accounts on one network would only find the same posts again.
+    var mixedSources: [MixedReader.Source] {
+        [accounts.firstBluesky, accounts.firstMastodon].compactMap { account in
+            account.flatMap { account in
+                accounts.reader(for: account.did).map {
+                    MixedReader.Source(accountDID: account.did, reader: $0, isMastodon: account.isMastodon)
+                }
+            }
+        }
+    }
+
+    var mixedReader: MixedReader? {
+        let sources = mixedSources
+        return sources.isEmpty ? nil : MixedReader(sources: sources)
+    }
+
+    /// Whether searches can mix networks, because there are accounts on both.
+    var hasBothNetworks: Bool { accounts.firstBluesky != nil && accounts.firstMastodon != nil }
 
     /// Reads for an account, or else through the first Bluesky account, or else Bluesky's public service.
     func reader(for accountDID: String?) -> any SocialReader {
         accounts.reader(for: accountDID)
             ?? accounts.client(for: accounts.firstBluesky?.did)
             ?? accounts.publicClient
+    }
+
+    /// For a person: without an account of its own, a Mastodon person is read through a Mastodon account.
+    func reader(for accountDID: String?, actor: String) -> any SocialReader {
+        if accountDID == nil, MastodonID.isActor(actor), let account = accounts.mastodonAccount(forActor: actor) {
+            return reader(for: account.did)
+        }
+        return reader(for: accountDID)
+    }
+
+    /// For a post: the same, by where the post comes from.
+    func reader(for accountDID: String?, postURI: String) -> any SocialReader {
+        if accountDID == nil, MastodonID.isPostURI(postURI), let account = accounts.firstMastodon {
+            return reader(for: account.did)
+        }
+        return reader(for: accountDID)
     }
 
     /// The account a view without its own account reads with. Mastodon people and Mastodon-only views
@@ -193,6 +235,9 @@ final class DeckStore {
             return accounts.firstMastodon?.did
         case .feed, .list:
             return accounts.firstBluesky?.did
+        case .search:
+            // Searches mix every network with an account.
+            return nil
         default:
             return accounts.accounts.first?.did
         }
@@ -272,8 +317,9 @@ final class DeckStore {
             kind: kind,
             title: title,
             avatar: avatar,
-            // Mastodon views only work through an account on Mastodon, so they keep theirs.
-            accountDID: Favorite.isTiedToAccount(kind) || accounts.network(of: accountDID) == .mastodon ? accountDID : nil,
+            // Mastodon views only work through an account on Mastodon, so they keep theirs. Searches mix networks.
+            accountDID: Favorite.isTiedToAccount(kind) || (accounts.network(of: accountDID) == .mastodon && !kind.isSearch)
+                ? accountDID : nil,
             filter: filter,
             width: width
         ))
@@ -577,7 +623,8 @@ final class DeckStore {
 
     /// The Mastodon account that acts in a column. Mastodon posts and people can only be reached from there.
     func mastodonActor(for accountDID: String?) -> MastodonClient? {
-        guard let client = accounts.mastodon(for: accountDID) else {
+        // Without an account of its own, as in a mixed search, the first Mastodon account acts.
+        guard let client = accounts.mastodon(for: accountDID ?? accounts.firstMastodon?.did) else {
             showToast(tr("Dafür musst du mit einem Mastodon-Konto angemeldet sein.", "You need a signed-in Mastodon account for that."))
             return nil
         }
@@ -735,6 +782,11 @@ final class DeckStore {
         guard url.scheme == RichText.internalScheme, url.host == "tag",
               let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "v" })?.value else { return false }
+        if accountDID == nil, hasBothNetworks {
+            // From a mixed column, a hashtag opens a mixed column too.
+            openColumn(kind: .search(query: "#\(value)"), accountDID: nil)
+            return true
+        }
         if accounts.network(of: accountDID) == .mastodon {
             openColumn(kind: .search(query: "#\(value)"), accountDID: accountDID)
             return true

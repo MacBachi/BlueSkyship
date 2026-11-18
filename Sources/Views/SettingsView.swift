@@ -89,6 +89,22 @@ private struct AccountSettings: View {
                             Text("@\(account.handle) · \(account.resolvedNetwork.label)").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
+                        Picker(tr("Farbe", "Colour"), selection: Binding(
+                            get: { deck.accounts.color(for: account.did) ?? .blue },
+                            set: { deck.accounts.setColor($0, for: account.did) }
+                        )) {
+                            ForEach(AccountColor.allCases, id: \.self) { color in
+                                Label {
+                                    Text(color.label)
+                                } icon: {
+                                    Image(systemName: "circle.fill").foregroundStyle(color.color)
+                                }
+                                .tag(color)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .help(tr("Posts dieses Kontos tragen am Rand einen schmalen Streifen in dieser Farbe.", "Posts from this account carry a thin strip in this colour at the edge."))
                         Button(tr("Abmelden", "Sign Out")) { accountToRemove = account }
                     }
                 }

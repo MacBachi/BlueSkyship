@@ -108,7 +108,7 @@ struct ColumnView: View {
         case .thread(let post):
             ThreadPanel(
                 root: post,
-                accountDID: column.accountDID,
+                accountDID: post.sourceAccountDID ?? column.accountDID,
                 onBack: { routes.removeLast() },
                 onOpenThread: { routes.append(.thread($0)) }
             )
@@ -116,7 +116,7 @@ struct ColumnView: View {
         case .reactions(let post):
             ReactionsPanel(
                 post: post,
-                accountDID: column.accountDID,
+                accountDID: post.sourceAccountDID ?? column.accountDID,
                 onBack: { routes.removeLast() },
                 onOpenThread: { routes.append(.thread($0)) }
             )
@@ -244,10 +244,21 @@ struct ColumnView: View {
                     }
                 }
                 if let account {
-                    Text("@\(account.handle)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        AccountDot(accountDID: account.did, size: 6)
+                        Text("@\(account.handle)")
+                            .lineLimit(1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else if deck.isMixed(column), deck.hasBothNetworks {
+                    HStack(spacing: 4) {
+                        ForEach(deck.mixedSources, id: \.accountDID) { AccountDot(accountDID: $0.accountDID, size: 6) }
+                        Text(tr("Bluesky und Mastodon", "Bluesky and Mastodon"))
+                            .lineLimit(1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 4)
