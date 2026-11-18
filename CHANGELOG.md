@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 - Mastodon accounts next to Bluesky accounts, in the same decks. Sign-in runs on the server's own page in the browser (OAuth with PKCE); the app never sees the password.
 - Mastodon columns: home, notifications, mentions, local and federated timelines, lists, hashtags, search, profiles, own posts, favourites, bookmarks and direct messages.
