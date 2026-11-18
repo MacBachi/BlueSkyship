@@ -137,24 +137,35 @@ enum MastodonAuth {
 
 /// Shows the server's sign-in page in a browser sheet and waits for it to send the person back.
 @MainActor
-private final class WebSignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
+final class WebSignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?
 
     func start(url: URL) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: MastodonAuth.callbackScheme) { callback, error in
-                if let callback {
-                    continuation.resume(returning: callback)
-                } else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
-                    continuation.resume(throwing: CancellationError())
-                } else {
-                    continuation.resume(throwing: error ?? URLError(.cancelled))
-                }
-            }
+            let session = ASWebAuthenticationSession(
+                url: url, callbackURLScheme: MastodonAuth.callbackScheme,
+                completionHandler: Self.completion(for: continuation)
+            )
             session.presentationContextProvider = self
             self.session = session
             if !session.start() {
                 continuation.resume(throwing: URLError(.cannotOpenFile))
+            }
+        }
+    }
+
+    /// macOS calls this from a background queue, so it must not belong to the main actor.
+    /// A handler written inline here would, and Swift stops the app when it runs elsewhere.
+    nonisolated static func completion(
+        for continuation: CheckedContinuation<URL, any Error>
+    ) -> @Sendable (URL?, (any Error)?) -> Void {
+        { callback, error in
+            if let callback {
+                continuation.resume(returning: callback)
+            } else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+                continuation.resume(throwing: CancellationError())
+            } else {
+                continuation.resume(throwing: error ?? URLError(.cancelled))
             }
         }
     }

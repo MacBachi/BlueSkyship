@@ -1,3 +1,4 @@
+import AuthenticationServices
 import CryptoKit
 import Foundation
 import Testing
@@ -462,6 +463,27 @@ struct MastodonAuthTests {
         )
         #expect(session.acct == "me@social.test")
         #expect(session.accountID == "1")
+    }
+
+    @Test func theBrowserCanFinishOnABackgroundThread() async throws {
+        let url = try await withCheckedThrowingContinuation { continuation in
+            let handler = WebSignIn.completion(for: continuation)
+            DispatchQueue.global().async {
+                handler(URL(string: "blueskyship://oauth?code=c&state=s"), nil)
+            }
+        }
+        #expect(url.scheme == "blueskyship")
+    }
+
+    @Test func cancellingTheBrowserIsNoError() async {
+        await #expect(throws: CancellationError.self) {
+            _ = try await withCheckedThrowingContinuation { continuation in
+                let handler = WebSignIn.completion(for: continuation)
+                DispatchQueue.global().async {
+                    handler(nil, ASWebAuthenticationSessionError(.canceledLogin))
+                }
+            }
+        }
     }
 
     @Test func oldAccountsAreStillBluesky() throws {
