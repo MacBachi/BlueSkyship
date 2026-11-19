@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- IOCs in every column are marked in orange: MD5, SHA-1, SHA-256 and SHA-512 hashes, IPv4 and IPv6 addresses, CVE numbers, email addresses, domains and addresses, including defanged forms such as `evil[.]com` and `hxxps://`.
+- IOCs in every column are marked in orange: MD5, SHA-1, SHA-256 and SHA-512 hashes, IPv4 and IPv6 addresses, CVE and EUVD numbers, email addresses, domains and addresses, including defanged forms such as `evil[.]com` and `hxxps://`.
 - Hovering an IOC or any link opens a card with live info, without a browser: for CVEs the CVSS score, exploitation per CISA KEV, EPSS and NVD's description; for IP addresses network operator, country, open ports (Shodan InternetDB) and GreyNoise's verdict; for domains urlscan.io; for hashes CIRCL. Optional free keys for VirusTotal and AbuseIPDB add their ratings. Private IP addresses are never sent. Live info can be switched off in Settings → IOCs.
 - The card, a right-click on an IOC or link, and a click on an IOC offer lookups on VirusTotal, AbuseIPDB, Shodan, GreyNoise, urlscan.io, crt.sh, MalwareBazaar, Hybrid Analysis, NVD, CVE.org or CISA KEV, plus plain and defanged copying.
 - New column filter "Only items with IOCs".
+- EUVD: CVE cards name the matching entry in ENISA's European Vulnerability Database with exploitation, product and a link to it. EUVD numbers such as `EUVD-2024-31700` are recognised too and show their entry and the CVE behind it.
 - A shield in the sidebar switches live lookup on hover on and off.
 - Umlauts and typographic marks written as HTML entities (such as `&ouml;` or `&ndash;`) now show as letters in feeds and Mastodon posts.
 

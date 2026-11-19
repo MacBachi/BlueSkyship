@@ -3,7 +3,7 @@ import Foundation
 /// Signs of an attack that security people pass around: addresses, hashes, vulnerability numbers.
 /// Everything here works on the text alone. Nothing is looked up until someone picks a service.
 enum IOCKind: String, CaseIterable, Sendable {
-    case url, email, ipv4, ipv6, domain, md5, sha1, sha256, sha512, cve
+    case url, email, ipv4, ipv6, domain, md5, sha1, sha256, sha512, cve, euvd
 
     var label: String {
         switch self {
@@ -17,6 +17,7 @@ enum IOCKind: String, CaseIterable, Sendable {
         case .sha256: return tr("SHA-256-Hash", "SHA-256 hash")
         case .sha512: return tr("SHA-512-Hash", "SHA-512 hash")
         case .cve: return tr("Schwachstelle (CVE)", "Vulnerability (CVE)")
+        case .euvd: return tr("Schwachstelle (EUVD)", "Vulnerability (EUVD)")
         }
     }
 
@@ -73,6 +74,7 @@ enum IOCDetector {
     )
     private static let hashPattern = regex(#"(?<![\w])(?:[0-9A-Fa-f]{128}|[0-9A-Fa-f]{64}|[0-9A-Fa-f]{40}|[0-9A-Fa-f]{32})(?![\w])"#)
     private static let cvePattern = regex(#"(?<![\w-])CVE-\d{4}-\d{4,7}(?![\w])"#, caseInsensitive: true)
+    private static let euvdPattern = regex(#"(?<![\w-])EUVD-\d{4}-\d{1,7}(?![\w])"#, caseInsensitive: true)
     private static let defangMarks = regex(#"\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\)|\[:\]|\[@\]|\[at\]|\(at\)|hxxp|fxp"#, caseInsensitive: true)
 
     /// Endings that a plain word like `index.html` also has. Written as a domain without brackets,
@@ -151,6 +153,9 @@ enum IOCDetector {
         }
         for match in cvePattern.matches(in: text, range: whole) {
             add(.cve, match.range, value: string.substring(with: match.range).uppercased())
+        }
+        for match in euvdPattern.matches(in: text, range: whole) {
+            add(.euvd, match.range, value: string.substring(with: match.range).uppercased())
         }
         for match in hashPattern.matches(in: text, range: whole) {
             let value = string.substring(with: match.range)
@@ -272,6 +277,9 @@ enum IOCDetector {
         if let match = cvePattern.firstMatch(in: text, range: whole) {
             return IOC(kind: .cve, value: (text as NSString).substring(with: match.range).uppercased(), range: NSRange(), wasDefanged: false)
         }
+        if let match = euvdPattern.firstMatch(in: text, range: whole) {
+            return IOC(kind: .euvd, value: (text as NSString).substring(with: match.range).uppercased(), range: NSRange(), wasDefanged: false)
+        }
         if let match = hashPattern.firstMatch(in: text, range: whole) {
             let value = (text as NSString).substring(with: match.range).lowercased()
             let kind: IOCKind = value.count == 32 ? .md5 : value.count == 40 ? .sha1 : value.count == 64 ? .sha256 : .sha512
@@ -347,8 +355,11 @@ enum IOCLookup {
             list = [
                 ("NVD", "https://nvd.nist.gov/vuln/detail/\(encoded)"),
                 ("CVE.org", "https://www.cve.org/CVERecord?id=\(query)"),
+                ("EUVD", "https://euvd.enisa.europa.eu/search?text=\(query)"),
                 ("CISA KEV", "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=\(query)"),
             ]
+        case .euvd:
+            list = [("EUVD", "https://euvd.enisa.europa.eu/vulnerability/\(encoded)")]
         }
         return list.compactMap { name, address in URL(string: address).map { Service(name: name, url: $0) } }
     }

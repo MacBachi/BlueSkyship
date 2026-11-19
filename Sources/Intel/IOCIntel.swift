@@ -20,6 +20,8 @@ struct IntelReport: Sendable {
     var facts: [IntelFact] = []
     /// Services that failed or need a key. Shown small, below the facts.
     var notes: [String] = []
+    /// Pages the answers point to, such as the EUVD entry that belongs to a CVE.
+    var links: [IOCLookup.Service] = []
 }
 
 /// Keys for services that rate without charge but only for registered users. Optional.
@@ -41,6 +43,7 @@ struct IntelEndpoints: Sendable {
     var circl = URL(string: "https://hashlookup.circl.lu/lookup/")!
     var virusTotal = URL(string: "https://www.virustotal.com/api/v3/")!
     var abuseIPDB = URL(string: "https://api.abuseipdb.com/api/v2/check")!
+    var euvd = URL(string: "https://euvdservices.enisa.europa.eu/api/")!
 }
 
 /// Asks public services about an IOC while the mouse rests on it. Each answer is kept for a few hours,
@@ -91,7 +94,9 @@ private struct Lookup: Sendable {
         var parts: [Part] = []
         switch ioc.kind {
         case .cve:
-            parts = [{ await nvd(ioc.value) }, { await epss(ioc.value) }]
+            parts = [{ await nvd(ioc.value) }, { await epss(ioc.value) }, { await euvd(cve: ioc.value) }]
+        case .euvd:
+            parts = [{ await euvd(id: ioc.value) }]
         case .ipv4, .ipv6:
             let address = ioc.value.split(separator: "/").first.map(String.init) ?? ioc.value
             if IPRanges.isPrivate(address) {
@@ -130,9 +135,10 @@ private struct Lookup: Sendable {
                 report.summary = report.summary ?? piece.summary
                 report.facts += piece.facts
                 report.notes += piece.notes
+                report.links += piece.links
             }
         }
-        if keys.virusTotal.isEmpty, ioc.kind != .cve {
+        if keys.virusTotal.isEmpty, ioc.kind != .cve, ioc.kind != .euvd {
             report.notes.append(tr("Für eine Bewertung durch VirusTotal einen kostenlosen Schlüssel unter ⌘, → IOCs eintragen.",
                                    "For a VirusTotal rating, enter a free key under ⌘, → IOCs."))
         }
@@ -238,6 +244,89 @@ private struct Lookup: Sendable {
             "\(Self.percent(probability)) chance of exploitation within 30 days · percentile \(Self.percent(percentile))"
         )
         return IntelReport(facts: [IntelFact(source: "FIRST", label: "EPSS", value: value, tone: tone)])
+    }
+
+    // MARK: European Vulnerability Database (ENISA)
+
+    /// The EUVD entry that names this CVE among its aliases. The search is by full text,
+    /// so only an exact alias counts.
+    private func euvd(cve: String) async -> IntelReport {
+        let answer = await get(url(endpoints.euvd, path: "search", query: ["text": cve, "size": "10"]), service: "EUVD")
+        if let failure = failed(answer) { return failure }
+        guard case .found(let body) = answer,
+              let item = (body["items"] as? [[String: Any]] ?? []).first(where: { Self.aliases(of: $0).contains { $0.caseInsensitiveCompare(cve) == .orderedSame } }) else {
+            return IntelReport(facts: [IntelFact(source: "ENISA", label: "EUVD", value: tr("kein Eintrag", "no entry"))])
+        }
+        return Self.euvdReport(item, forCVE: true)
+    }
+
+    private func euvd(id: String) async -> IntelReport {
+        let answer = await get(url(endpoints.euvd, path: "enisaid", query: ["id": id]), service: "EUVD")
+        if let failure = failed(answer) { return failure }
+        guard case .found(let item) = answer, item["id"] != nil else {
+            return IntelReport(notes: [tr("Die EUVD kennt \(id) nicht.", "The EUVD does not know \(id).")])
+        }
+        return Self.euvdReport(item, forCVE: false)
+    }
+
+    static func aliases(of item: [String: Any]) -> [String] {
+        (item["aliases"] as? String ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// For a CVE, NVD already gives the score and description, so the EUVD adds its own number,
+    /// exploitation and product. For an EUVD number, its entry is all there is.
+    static func euvdReport(_ item: [String: Any], forCVE: Bool) -> IntelReport {
+        var report = IntelReport()
+        let id = item["id"] as? String ?? ""
+        if let page = URL(string: "https://euvd.enisa.europa.eu/vulnerability/\(id)") {
+            report.links.append(IOCLookup.Service(name: id, url: page))
+        }
+        report.facts.append(IntelFact(source: "ENISA", label: "EUVD", value: id))
+        report.summary = item["description"] as? String
+        if !forCVE, let score = (item["baseScore"] as? NSNumber)?.doubleValue, score > 0 {
+            let version = item["baseScoreVersion"] as? String ?? ""
+            let severity = score >= 9 ? "CRITICAL" : score >= 7 ? "HIGH" : score >= 4 ? "MEDIUM" : "LOW"
+            report.facts.append(IntelFact(source: "ENISA", label: "CVSS \(version)", value: "\(String(format: "%.1f", score)) \(severityName(severity))", tone: tone(severity: severity)))
+        }
+        if let since = item["exploitedSince"] as? String, !since.isEmpty {
+            report.facts.append(IntelFact(source: "ENISA", label: tr("Ausgenutzt", "Exploited"), value: tr("laut EUVD seit \(euvdDate(since))", "per EUVD since \(euvdDate(since))"), tone: .bad))
+        }
+        if !forCVE, let epss = (item["epss"] as? NSNumber)?.doubleValue {
+            let tone: IntelTone = epss >= 50 ? .bad : epss >= 10 ? .caution : .neutral
+            report.facts.append(IntelFact(source: "ENISA", label: "EPSS", value: percent(epss / 100), tone: tone))
+        }
+        let products = (item["enisaIdProduct"] as? [[String: Any]] ?? []).compactMap { entry -> String? in
+            guard let product = entry["product"] as? [String: Any], let name = product["name"] as? String else { return nil }
+            let vendor = (product["vendor"] as? [String: Any])?["name"] as? String
+            let version = (entry["product_version"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return [vendor.flatMap { name.hasPrefix($0) ? nil : $0 }, name, version].compactMap { $0 }.joined(separator: " ")
+        }
+        if !products.isEmpty {
+            report.facts.append(IntelFact(source: "ENISA", label: tr("Produkt", "Product"), value: Array(NSOrderedSet(array: products)).compactMap { $0 as? String }.prefix(3).joined(separator: "; ")))
+        }
+        let others = aliases(of: item).filter { !forCVE || !$0.uppercased().hasPrefix("CVE-") }
+        if !others.isEmpty {
+            report.facts.append(IntelFact(source: "ENISA", label: tr("Auch bekannt als", "Also known as"), value: others.prefix(4).joined(separator: ", ")))
+            if !forCVE, let cve = others.first(where: { $0.uppercased().hasPrefix("CVE-") }),
+               let nvd = URL(string: "https://nvd.nist.gov/vuln/detail/\(cve)") {
+                report.links.append(IOCLookup.Service(name: "NVD", url: nvd))
+            }
+        }
+        return report
+    }
+
+    /// The EUVD writes dates like "Dec 10, 2021, 12:00:00 AM".
+    static func euvdDate(_ text: String) -> String {
+        let reader = DateFormatter()
+        reader.locale = Locale(identifier: "en_US_POSIX")
+        reader.timeZone = TimeZone(identifier: "UTC")
+        reader.dateFormat = "MMM d, yyyy, h:mm:ss a"
+        guard let date = reader.date(from: text.replacingOccurrences(of: "\u{202F}", with: " ")) else { return text }
+        let writer = DateFormatter()
+        writer.locale = Locale(identifier: "en_US_POSIX")
+        writer.timeZone = TimeZone(identifier: "UTC")
+        writer.dateFormat = "yyyy-MM-dd"
+        return writer.string(from: date)
     }
 
     static func severityName(_ severity: String) -> String {

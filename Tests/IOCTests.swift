@@ -19,6 +19,18 @@ struct IOCTests {
         #expect(kinds("deadbeef cafe facade") == [])
     }
 
+    @Test func findsEUVDNumbers() {
+        let found = IOCDetector.find(in: "Siehe euvd-2025-14093 und CVE-2025-1.")
+        #expect(found.map(\.kind) == [.euvd])
+        #expect(found.first?.value == "EUVD-2025-14093")
+        let ioc = IOC(kind: .euvd, value: "EUVD-2025-14093", range: NSRange(), wasDefanged: false)
+        #expect(IOCLookup.services(for: ioc).first?.url.absoluteString == "https://euvd.enisa.europa.eu/vulnerability/EUVD-2025-14093")
+        let cve = IOC(kind: .cve, value: "CVE-2024-3094", range: NSRange(), wasDefanged: false)
+        #expect(IOCLookup.services(for: cve).map(\.name).contains("EUVD"))
+        let link = URL(string: "https://euvd.enisa.europa.eu/vulnerability/EUVD-2025-14093")!
+        #expect(IOCDetector.subject(forLink: link)?.kind == .euvd)
+    }
+
     @Test func findsCVEsInAnyCase() {
         #expect(values("Patch for cve-2024-3094 and CVE-2021-44228.") == ["CVE-2024-3094", "CVE-2021-44228"])
     }
@@ -137,7 +149,8 @@ struct IOCIntelTests {
         return IntelEndpoints(
             nvd: URL(string: "\(base)/nvd")!, epss: URL(string: "\(base)/epss")!, ripe: URL(string: "\(base)/ripe/")!,
             internetDB: URL(string: "\(base)/idb/")!, greyNoise: URL(string: "\(base)/gn/")!, urlscan: URL(string: "\(base)/us/")!,
-            circl: URL(string: "\(base)/circl/")!, virusTotal: URL(string: "\(base)/vt/")!, abuseIPDB: URL(string: "\(base)/abuse")!
+            circl: URL(string: "\(base)/circl/")!, virusTotal: URL(string: "\(base)/vt/")!, abuseIPDB: URL(string: "\(base)/abuse")!,
+            euvd: URL(string: "\(base)/euvd/")!
         )
     }
 
@@ -151,7 +164,7 @@ struct IOCIntelTests {
                 return json(#"{"vulnerabilities":[{"cve":{"published":"2021-12-10T10:15:09.143","cisaExploitAdd":"2021-12-10","cisaActionDue":"2021-12-24","cisaVulnerabilityName":"Apache Log4j2 RCE","descriptions":[{"lang":"es","value":"x"},{"lang":"en","value":"JNDI lookups run code."}],"metrics":{"cvssMetricV31":[{"type":"Primary","cvssData":{"baseScore":10.0,"baseSeverity":"CRITICAL"}}]},"weaknesses":[{"description":[{"lang":"en","value":"CWE-502"}]}]}}]}"#)
             }
             if path.hasPrefix("/epss") { return json(#"{"data":[{"cve":"CVE-2021-44228","epss":"0.97","percentile":"0.999"}]}"#) }
-            return (500, Data())
+            return (404, Data())
         }
         let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("cve.intel.test"))
         let report = await intel.report(for: ioc(.cve, "CVE-2021-44228"))
@@ -240,6 +253,50 @@ struct IOCIntelTests {
         let report = await intel.report(for: ioc(.cve, "CVE-2024-3094"))
         #expect(report.facts.contains { $0.label == "EPSS" })
         #expect(report.notes.contains { $0.contains("NVD") })
+    }
+
+    private static let euvdItem = #"{"id":"EUVD-2021-34768","description":"JNDI lookups run code.","baseScore":10.0,"baseScoreVersion":"3.1","aliases":"GHSA-jfh8-c2jp-5v3q\nCVE-2021-44228\n","epss":97.5,"exploitedSince":"Dec 10, 2021, 12:00:00 AM","enisaIdProduct":[{"product":{"name":"Apache Log4j2","vendor":{"name":"Apache Software Foundation"}},"product_version":"2.0-beta9 <log4j-core*"}]}"#
+
+    @Test func cveCardNamesItsEUVDEntryAndLinksToIt() async {
+        StubProtocol.register(host: "euvd-cve.intel.test") { request in
+            let path = request.url!.path
+            if path.hasPrefix("/euvd/search") {
+                // Full-text search: an entry that only mentions the CVE in its text must not count.
+                return json(#"{"total":2,"items":[{"id":"EUVD-2022-1","aliases":"CVE-2021-45046\n","description":"Follow-up to CVE-2021-44228"},"# + Self.euvdItem + "]}")
+            }
+            return (404, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("euvd-cve.intel.test"))
+        let report = await intel.report(for: ioc(.cve, "CVE-2021-44228"))
+        #expect(report.facts.first { $0.label == "EUVD" }?.value == "EUVD-2021-34768")
+        #expect(report.facts.contains { $0.value.contains("2021-12-10") && $0.tone == .bad })
+        #expect(report.facts.contains { $0.value.contains("Apache Software Foundation Apache Log4j2") })
+        #expect(report.links.first?.url.absoluteString == "https://euvd.enisa.europa.eu/vulnerability/EUVD-2021-34768")
+        #expect(report.facts.contains { $0.value.contains("GHSA-jfh8-c2jp-5v3q") })
+    }
+
+    @Test func cveWithoutEUVDEntrySaysSo() async {
+        StubProtocol.register(host: "euvd-none.intel.test") { request in
+            request.url!.path.hasPrefix("/euvd/search") ? json(#"{"total":0,"items":[]}"#) : (404, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("euvd-none.intel.test"))
+        let report = await intel.report(for: ioc(.cve, "CVE-2026-1"))
+        #expect(report.facts.first { $0.label == "EUVD" }?.tone == .neutral)
+        #expect(report.links.isEmpty)
+    }
+
+    @Test func euvdNumberShowsItsEntryAndTheCVEBehindIt() async {
+        StubProtocol.register(host: "euvd-id.intel.test") { request in
+            request.url!.path.hasPrefix("/euvd/enisaid") ? json(Self.euvdItem) : (404, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("euvd-id.intel.test"))
+        let report = await intel.report(for: ioc(.euvd, "EUVD-2021-34768"))
+        #expect(report.summary == "JNDI lookups run code.")
+        #expect(report.facts.first { $0.label == "CVSS 3.1" }?.tone == .bad)
+        #expect(report.facts.first { $0.label == "EPSS" }?.tone == .bad)
+        #expect(report.facts.contains { $0.value.contains("CVE-2021-44228") })
+        #expect(report.links.map(\.name).contains("NVD"))
+        #expect(!report.notes.contains { $0.contains("VirusTotal") })
     }
 
     @Test func linksAreAboutTheCVEOrAddressTheyName() throws {

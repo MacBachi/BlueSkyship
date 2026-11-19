@@ -127,7 +127,9 @@ struct IOCHoverCard: View {
 
     private var actions: some View {
         VStack(alignment: .leading, spacing: 6) {
-            let services = IOCLookup.services(for: ioc)
+            // Pages the answers pointed to, such as the EUVD entry for a CVE, come first.
+            let found = (report?.links ?? []).filter { link in !IOCLookup.services(for: ioc).contains { $0.url == link.url } }
+            let services = found + IOCLookup.services(for: ioc)
             if !services.isEmpty {
                 FlowButtons(items: services.map { service in (service.name, { close(); open(service.url) }) })
             }
@@ -153,7 +155,7 @@ struct IOCHoverCard: View {
 
     private var icon: String {
         switch ioc.kind {
-        case .cve: return "exclamationmark.shield"
+        case .cve, .euvd: return "exclamationmark.shield"
         case .ipv4, .ipv6: return "network"
         case .domain, .url: return "globe"
         case .email: return "envelope"
