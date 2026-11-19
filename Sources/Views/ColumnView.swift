@@ -92,8 +92,8 @@ struct ColumnView: View {
             case .back: if !routes.isEmpty { routes.removeLast() }
             }
         }
-        // Restarts on account change and on "refresh all", and stops when the column is removed.
-        .task(id: "\(column.accountDID ?? "public")#\(deck.refreshGeneration)#\(deck.settings.refreshSeconds)") {
+        // Restarts on account change, on "refresh all" and when a column's feeds change, and stops when the column is removed.
+        .task(id: "\(column.accountDID ?? "public")#\(deck.refreshGeneration)#\(deck.settings.refreshSeconds)#\(String(describing: column.kind))") {
             await autoRefreshLoop()
         }
         // Waits for a typing pause, so not every keystroke fetches more pages.
