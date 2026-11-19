@@ -104,6 +104,20 @@ struct FeedParsingTests {
         #expect(feed?.entries.first?.title.contains("root") != true)
     }
 
+    @Test func decodesNamedEntitiesSuchAsUmlauts() throws {
+        let atom = """
+        <feed xmlns="http://www.w3.org/2005/Atom"><title>CERT</title>
+          <entry><title>Gef&amp;auml;hrlich &amp;ndash; jetzt</title><id>1</id>
+            <content type="html">&lt;p&gt;Angreifer:innen k&amp;ouml;nnen Code ausf&amp;uuml;hren &amp;amp; Stra&amp;szlig;e &amp;euro;&amp;hellip;&lt;/p&gt;</content>
+          </entry></feed>
+        """
+        let feed = try FeedParser.parse(Data(atom.utf8))
+        let post = ArticleMapper.post(try #require(feed.entries.first), feedTitle: feed.title, feedURL: "https://cert.example/atom", siteLink: nil)
+        #expect(post.article?.title == "Gefährlich – jetzt")
+        #expect(post.article?.body == "Angreifer:innen können Code ausführen & Straße €…")
+        #expect(MastodonHTML.plainText("&unknownthing; &shy;x") == "&unknownthing; &shy;x")
+    }
+
     @Test func readsDatesInTheirManyForms() {
         #expect(FeedDate.parse("Tue, 17 Nov 2026 08:30:00 +0100") != nil)
         #expect(FeedDate.parse("Tue, 17 Nov 2026 08:30:00 GMT") != nil)

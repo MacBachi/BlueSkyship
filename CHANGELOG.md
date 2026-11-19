@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Umlauts and typographic marks written as HTML entities (such as `&ouml;` or `&ndash;`) now show as letters in feeds and Mastodon posts.
+
 ## 1.2.0
 
 - RSS and Atom feeds as columns, one feed or several mixed, newest first. A website address is enough; the app finds the feed. The whole article opens inside the column as plain text, without loading the publisher's page, and can be opened in the browser or shared on Bluesky or Mastodon.
