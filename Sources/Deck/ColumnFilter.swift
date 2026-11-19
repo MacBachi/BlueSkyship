@@ -11,10 +11,13 @@ struct ColumnFilter: Codable, Hashable, Sendable {
     var mediaOnly = false
     var hideReposts = false
     var hideReplies = false
+    /// Only items that name a hash, IP address, CVE number or the like.
+    var onlyWithIOCs = false
 
     init(
         includeTerms: [String] = [], excludeTerms: [String] = [], alwaysShowTerms: [String] = [],
-        mediaOnly: Bool = false, hideReposts: Bool = false, hideReplies: Bool = false
+        mediaOnly: Bool = false, hideReposts: Bool = false, hideReplies: Bool = false,
+        onlyWithIOCs: Bool = false
     ) {
         self.includeTerms = includeTerms
         self.excludeTerms = excludeTerms
@@ -22,10 +25,11 @@ struct ColumnFilter: Codable, Hashable, Sendable {
         self.mediaOnly = mediaOnly
         self.hideReposts = hideReposts
         self.hideReplies = hideReplies
+        self.onlyWithIOCs = onlyWithIOCs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case includeTerms, excludeTerms, alwaysShowTerms, mediaOnly, hideReposts, hideReplies
+        case includeTerms, excludeTerms, alwaysShowTerms, mediaOnly, hideReposts, hideReplies, onlyWithIOCs
     }
 
     /// Filters saved before a field existed still load, with that field empty.
@@ -37,10 +41,11 @@ struct ColumnFilter: Codable, Hashable, Sendable {
         mediaOnly = try container.decodeIfPresent(Bool.self, forKey: .mediaOnly) ?? false
         hideReposts = try container.decodeIfPresent(Bool.self, forKey: .hideReposts) ?? false
         hideReplies = try container.decodeIfPresent(Bool.self, forKey: .hideReplies) ?? false
+        onlyWithIOCs = try container.decodeIfPresent(Bool.self, forKey: .onlyWithIOCs) ?? false
     }
 
     var isActive: Bool {
-        !includeTerms.isEmpty || !excludeTerms.isEmpty || !alwaysShowTerms.isEmpty || mediaOnly || hideReposts || hideReplies
+        !includeTerms.isEmpty || !excludeTerms.isEmpty || !alwaysShowTerms.isEmpty || mediaOnly || hideReposts || hideReplies || onlyWithIOCs
     }
 
     func apply(_ items: [ColumnItem]) -> [ColumnItem] {
@@ -79,6 +84,7 @@ struct ColumnFilter: Codable, Hashable, Sendable {
             if filter.mediaOnly, !item.hasMedia { return false }
             if filter.hideReposts, item.isRepost { return false }
             if filter.hideReplies, item.isReply { return false }
+            if filter.onlyWithIOCs, !IOCDetector.containsIOC(item.searchableText) { return false }
             if excludes.contains(where: { $0.matches(text: text, handle: handle) }) { return false }
             return includes.isEmpty || includes.contains { $0.matches(text: text, handle: handle) }
         }

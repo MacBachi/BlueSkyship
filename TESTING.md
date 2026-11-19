@@ -7,6 +7,7 @@
 - Unit tests cover the API client, data models, facets, filters and storage.
 - `Tests/MastodonTests.swift` runs the Mastodon client, sign-in, HTML reader and deck actions against a simulated Mastodon server, including hostile links and markup. The mapping was also checked once against 125 real public posts from mastodon.social (none skipped); that data is not part of the repository.
 - `Tests/FeedTests.swift` covers RSS, Atom and RDF parsing, hostile feeds, feed discovery, OPML import, the Feedly client and the filter rules against simulated servers.
+- `Tests/IOCTests.swift` covers IOC detection (hashes, IPs, CVEs, domains, addresses, defanged forms), false alarms such as file names and clock times, lookup links, hover texts and the IOC filter.
 - `Tests/UIDriveTests.swift` and `Tests/UIDriveMoreTests.swift` drive the real window invisibly with mouse and key events against a simulated server.
 - The test `writeAllRecordsForValidation` writes every outgoing record to a file. `scripts/validate-records.py <lexicon folder> <file>` checks them against the official Bluesky definitions.
 
@@ -21,5 +22,6 @@ These cannot be automated and should be checked before a release:
 - **Mastodon against a real server.** Sign in through the browser, read home, notifications, local and federated timelines, a hashtag, a profile and a list. Favourite and boost and undo both. Post, reply, a thread with a picture, a content warning and a direct message with a test post, then delete them. Sign out and check that the app is gone under the account's authorized apps on the server.
 
 - **Feeds and Feedly against real servers.** Add a few real feeds (one by website address), an OPML export from Feedly, and, if a token is available, a Feedly category. Check pictures, the article view, filters with saved presets, and the two new widths.
+- **IOC highlighting in the real window.** Hover a marked hash or IP and a normal link and check the hover text; click an IOC and check that the menu opens at the mouse and that a lookup opens the right page.
 
 Starting a brand-new conversation and muted words have so far only been tested against the simulated server.

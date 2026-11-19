@@ -35,6 +35,9 @@ private struct GeneralSettings: View {
                     ForEach(ColumnWidth.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 Toggle(tr("Bilder und Videos direkt anzeigen", "Show pictures and videos directly"), isOn: $settings.showMedia)
+                Toggle(tr("IOCs hervorheben (Hashes, IPs, CVEs, Domains)", "Highlight IOCs (hashes, IPs, CVEs, domains)"), isOn: $settings.highlightIOCs)
+                    .help(tr("Ein Klick bietet Nachschlagen bei VirusTotal und Co. an. Gesendet wird erst, wenn du einen Dienst wählst.",
+                             "A click offers lookups on VirusTotal and others. Nothing is sent until you pick a service."))
                 Picker(tr("Textgröße der Posts", "Post text size"), selection: $settings.textSize) {
                     ForEach(PostTextSize.allCases, id: \.self) { Text($0.label).tag($0) }
                 }

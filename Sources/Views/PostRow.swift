@@ -145,7 +145,8 @@ struct PostRow: View {
                             onTap: { onOpenThread(post) },
                             menuEntries: { menuEntries },
                             onOpenLink: { openURL($0) },
-                            onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) }
+                            onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) },
+                            findsIOCs: deck.settings.highlightIOCs
                         )
                     }
                     if let embed = post.embed, contentWarning == nil {
@@ -404,6 +405,7 @@ struct PostRow: View {
 struct NotificationRow: View {
     @Environment(DeckStore.self) private var deck
     @Environment(\.openProfile) private var openProfile
+    @Environment(\.openURL) private var openURL
     let item: NotificationItem
     let accountDID: String?
     let onUpdate: @MainActor (PostView) -> Void
@@ -436,7 +438,8 @@ struct NotificationRow: View {
                             maxLines: 3,
                             onTap: { onOpenThread(post) },
                             menuEntries: { deck.personMenuEntries(person: item.raw.author, accountDID: accountDID, openProfile: openProfile) },
-                            onOpenLink: { _ in }
+                            onOpenLink: { openURL($0) },
+                            findsIOCs: deck.settings.highlightIOCs
                         )
                     }
                 }

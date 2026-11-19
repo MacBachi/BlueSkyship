@@ -81,11 +81,16 @@ struct ArticleRow: View {
                         .font(.system(size: deck.settings.textSize.points + 1, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                     if !summary.isEmpty {
-                        Text(summary)
-                            .font(.system(size: deck.settings.textSize.points - 1))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(4)
-                            .fixedSize(horizontal: false, vertical: true)
+                        SelectablePostText(
+                            text: AttributedString(summary),
+                            fontSize: deck.settings.textSize.points - 1,
+                            color: .secondaryLabelColor,
+                            maxLines: 4,
+                            onTap: onOpen,
+                            menuEntries: { menuEntries },
+                            onOpenLink: { openURL($0) },
+                            findsIOCs: deck.settings.highlightIOCs
+                        )
                     }
                 }
                 Spacer(minLength: 0)
@@ -179,7 +184,8 @@ struct ArticlePanel: View {
                                 onTap: {},
                                 menuEntries: { [] },
                                 onOpenLink: { openURL($0) },
-                                onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) }
+                                onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) },
+                            findsIOCs: deck.settings.highlightIOCs
                             )
                         }
                         actions

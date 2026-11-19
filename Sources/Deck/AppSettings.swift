@@ -50,6 +50,7 @@ final class AppSettings {
         static let requireAltText = "settings.requireAltText"
         static let iCloudSync = "settings.iCloudSync"
         static let mastodonVisibility = "settings.mastodonVisibility"
+        static let highlightIOCs = "settings.highlightIOCs"
     }
 
     private let defaults: UserDefaults
@@ -75,8 +76,12 @@ final class AppSettings {
     /// Who sees a new Mastodon post unless chosen otherwise in the composer.
     var mastodonVisibility: MastodonVisibility { didSet { defaults.set(mastodonVisibility.rawValue, forKey: Key.mastodonVisibility) } }
 
+    /// Marks hashes, IP addresses, CVE numbers and domains in all texts, with lookups on a click.
+    var highlightIOCs: Bool { didSet { defaults.set(highlightIOCs, forKey: Key.highlightIOCs) } }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        highlightIOCs = defaults.object(forKey: Key.highlightIOCs) as? Bool ?? true
         requireAltText = defaults.object(forKey: Key.requireAltText) as? Bool ?? false
         iCloudSync = defaults.object(forKey: Key.iCloudSync) as? Bool ?? true
         keyboardShortcuts = defaults.object(forKey: Key.keyboard) as? Bool ?? true

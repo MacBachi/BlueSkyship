@@ -330,7 +330,8 @@ private struct QuoteCard: View {
                             onTap: { postTap() },
                             menuEntries: { deck.personMenuEntries(person: quoted.author, accountDID: accountDID, openProfile: openProfile) },
                             onOpenLink: { openURL($0) },
-                            onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) }
+                            onMisleadingLink: { deck.confirmation = .openLink($0, shownAs: $1) },
+                            findsIOCs: deck.settings.highlightIOCs
                         )
                     }
                     if quoted.embeds?.isEmpty == false {

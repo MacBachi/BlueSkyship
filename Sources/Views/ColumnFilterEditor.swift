@@ -35,6 +35,7 @@ struct FilterFields: View {
                 Toggle(tr("Nur Einträge mit Bild oder Video", "Only items with a picture or video"), isOn: $filter.mediaOnly)
                 Toggle(tr("Reposts ausblenden", "Hide reposts"), isOn: $filter.hideReposts)
                 Toggle(tr("Antworten ausblenden", "Hide replies"), isOn: $filter.hideReplies)
+                Toggle(tr("Nur Einträge mit IOCs (Hash, IP, CVE, Domain …)", "Only items with IOCs (hash, IP, CVE, domain…)"), isOn: $filter.onlyWithIOCs)
             }
         }
         .onAppear {

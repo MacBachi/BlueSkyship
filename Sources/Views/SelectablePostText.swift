@@ -40,6 +40,8 @@ struct SelectablePostText: NSViewRepresentable {
     var onOpenLink: @MainActor (URL) -> Void
     /// A link whose text names a different site than it goes to. Opens nothing unless this asks first.
     var onMisleadingLink: @MainActor (URL, String) -> Void = { _, _ in }
+    /// Marks IOCs such as hashes and IP addresses that are not links yet, and offers lookups for them.
+    var findsIOCs = true
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var onOpenLink: @MainActor (URL) -> Void = { _ in }
@@ -53,7 +55,9 @@ struct SelectablePostText: NSViewRepresentable {
             guard let url else { return true }
             let shown = Self.shownText(of: textView, at: charIndex)
             MainActor.assumeIsolated {
-                if url.scheme == RichText.internalScheme {
+                if let ioc = IOCDetector.ioc(from: url) {
+                    showLookups(for: ioc, in: textView, at: charIndex)
+                } else if url.scheme == RichText.internalScheme {
                     onOpenLink(url)
                 } else if LinkPolicy.isWebURL(url) {
                     if LinkPolicy.isMisleading(shown: shown, target: url) {
@@ -64,6 +68,46 @@ struct SelectablePostText: NSViewRepresentable {
                 }
             }
             return true
+        }
+
+        /// The services that know more about an IOC, right where it was clicked.
+        @MainActor private func showLookups(for ioc: IOC, in textView: NSTextView, at charIndex: Int) {
+            let open = onOpenLink
+            var entries: [PostMenuEntry] = IOCLookup.services(for: ioc).map { service in
+                PostMenuEntry(title: tr("Bei \(service.name) nachsehen", "Look up on \(service.name)")) { open(service.url) }
+            }
+            entries.append(.separator)
+            entries.append(PostMenuEntry(title: tr("Kopieren", "Copy")) { Self.copy(ioc.value) })
+            if ioc.kind == .url || ioc.kind == .domain || ioc.kind == .ipv4 || ioc.kind == .email {
+                entries.append(PostMenuEntry(title: tr("Entschärft kopieren", "Copy Defanged")) { Self.copy(ioc.defanged) })
+            }
+            if ioc.mayOpenInBrowser {
+                let address = ioc.kind == .url ? ioc.value : "https://\(ioc.value)"
+                if let url = LinkPolicy.webURL(address) {
+                    entries.append(.separator)
+                    entries.append(PostMenuEntry(title: tr("Im Browser öffnen", "Open in Browser")) { open(url) })
+                }
+            }
+            let menu = PostTextView.makeMenu(entries: entries, offersCopy: false)
+            let header = NSMenuItem(title: "\(ioc.kind.label): \(ioc.value)", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.insertItem(header, at: 0)
+            menu.insertItem(.separator(), at: 1)
+            let point: NSPoint
+            if let event = NSApp.currentEvent, event.window == textView.window {
+                point = textView.convert(event.locationInWindow, from: nil)
+            } else if let layout = textView.layoutManager, let container = textView.textContainer {
+                let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: charIndex, length: 1), actualCharacterRange: nil)
+                point = layout.boundingRect(forGlyphRange: glyphs, in: container).origin
+            } else {
+                point = .zero
+            }
+            menu.popUp(positioning: nil, at: point, in: textView)
+        }
+
+        private static func copy(_ text: String) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
         }
 
         private static func shownText(of textView: NSTextView, at index: Int) -> String {
@@ -86,8 +130,8 @@ struct SelectablePostText: NSViewRepresentable {
         view.isVerticallyResizable = false
         view.isHorizontallyResizable = false
         view.textContainer?.widthTracksTextView = true
-        // Same look as links elsewhere in the app: colored, without the default underline.
-        view.linkTextAttributes = [.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand]
+        // Links get their color from the text itself, because IOCs are links with a color of their own.
+        view.linkTextAttributes = [.cursor: NSCursor.pointingHand]
         view.delegate = context.coordinator
         context.coordinator.view = view
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -101,7 +145,7 @@ struct SelectablePostText: NSViewRepresentable {
         view.menuEntries = menuEntries
         view.textContainer?.maximumNumberOfLines = maxLines
         view.textContainer?.lineBreakMode = maxLines > 0 ? .byTruncatingTail : .byWordWrapping
-        let content = Self.attributed(text, fontSize: fontSize, color: color)
+        let content = Self.attributed(text, fontSize: fontSize, color: color, findsIOCs: findsIOCs)
         // Setting the text clears a selection, and a column redraws often.
         if view.textStorage?.isEqual(to: content) != true {
             view.textStorage?.setAttributedString(content)
@@ -116,19 +160,37 @@ struct SelectablePostText: NSViewRepresentable {
         return CGSize(width: width, height: ceil(layout.usedRect(for: container).height))
     }
 
-    static func attributed(_ text: AttributedString, fontSize: CGFloat, color: NSColor) -> NSAttributedString {
+    static let iocColor = NSColor.systemOrange
+
+    static func attributed(_ text: AttributedString, fontSize: CGFloat, color: NSColor, findsIOCs: Bool = false) -> NSAttributedString {
         let result = NSMutableAttributedString(attributedString: NSAttributedString(text))
         let whole = NSRange(location: 0, length: result.length)
         result.addAttribute(.font, value: NSFont.systemFont(ofSize: fontSize), range: whole)
         result.addAttribute(.foregroundColor, value: color, range: whole)
         // Shows where a link really goes before anyone clicks it.
+        var linked = IndexSet()
         result.enumerateAttribute(.link, in: whole) { value, range, _ in
             guard let url = value as? URL else { return }
+            linked.insert(integersIn: range.location..<(range.location + range.length))
+            result.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
             if LinkPolicy.isWebURL(url) {
-                result.addAttribute(.toolTip, value: url.absoluteString, range: range)
+                result.addAttribute(.toolTip, value: IOCDetector.tooltip(forLink: url), range: range)
             } else {
                 result.addAttribute(.toolTip, value: tr("In der App öffnen", "Open in the app"), range: range)
             }
+        }
+        guard findsIOCs else { return result }
+        for ioc in IOCDetector.find(in: result.string) {
+            let span = ioc.range.location..<(ioc.range.location + ioc.range.length)
+            guard !linked.intersects(integersIn: span), let link = IOCDetector.link(for: ioc) else { continue }
+            result.addAttributes([
+                .link: link,
+                .foregroundColor: iocColor,
+                .font: NSFont.monospacedSystemFont(ofSize: fontSize - 0.5, weight: .regular),
+                .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
+                .underlineColor: iocColor.withAlphaComponent(0.7),
+                .toolTip: IOCDetector.tooltip(for: ioc),
+            ], range: ioc.range)
         }
         return result
     }

@@ -1173,7 +1173,9 @@ final class FakeCloudStore: CloudStore {
     @Test func tooltipsShowTheRealTarget() throws {
         let text = RichText.attributed(text: "click me", facets: [Facet(byteStart: 0, byteEnd: 8, feature: .link("https://evil.example/x"))])
         let shown = SelectablePostText.attributed(text, fontSize: 13, color: .labelColor)
-        #expect(shown.attribute(.toolTip, at: 0, effectiveRange: nil) as? String == "https://evil.example/x")
+        let tip = shown.attribute(.toolTip, at: 0, effectiveRange: nil) as? String ?? ""
+        #expect(tip.contains("https://evil.example/x"))
+        #expect(tip.contains("evil.example"))
     }
 
     @Test func aMisleadingLinkNeedsAYesAndTheConfirmationOpensNothingUnsafe() async throws {

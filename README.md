@@ -23,6 +23,7 @@
 - **Columns:** home, notifications, mentions, searches, profiles, feeds, lists, likes, bookmarks and direct messages. Move them freely, from narrow to very wide, and see at a glance which columns are out of view.
 - **Bluesky and Mastodon side by side:** columns of both networks in the same deck, each tied to its account. Searches and hashtags can mix both networks in one column. Each account has a colour, and a thin strip on every post shows where it came from. Mastodon adds local and federated timelines, lists, visibility and content warnings.
 - **RSS, Atom and Feedly:** feed articles as columns next to posts, one feed or several mixed. The whole text opens inside the column, without loading the publisher's page. Paste a website address and the app finds its feed. Import an OPML file from Feedly or any other reader, or connect Feedly directly with an access token.
+- **IOC highlighting:** hashes, IP addresses, CVE numbers, email addresses and domains, plain or defanged (`evil[.]com`, `hxxps://`), are marked in every column. Hover for what it is, click to look it up on VirusTotal, AbuseIPDB, Shodan, urlscan.io, NVD and others, or to copy it defanged. Detection runs locally; nothing is sent until you pick a service.
 - **Several decks:** switch between sets of columns with `⌘1` to `⌘9`.
 - **Filters per column:** always hide words or `@handles`, always show others whatever else hides them, only certain words, only items with media, no reposts, no replies. Save a filter under a name and tick it in any column. Filters run locally.
 - **Favorites:** people, hashtags, searches, feeds and lists within reach, without taking up a column. Pin one when you want it to stay.
@@ -96,6 +97,7 @@ To sign with your own Apple Developer account, see [CONTRIBUTING.md](CONTRIBUTIN
 | `Sources/ATProto` | XRPC client with token refresh, data models, API calls, facets |
 | `Sources/Mastodon` | Mastodon client, OAuth sign-in, safe HTML reader, mapping into the shared models |
 | `Sources/Feeds` | RSS, Atom and OPML reading, feed discovery, Feedly client, mapping articles into columns |
+| `Sources/Intel` | IOC detection, defanging and lookup services |
 | `Sources/Deck` | Columns and their loading state, accounts, actions, iCloud sync |
 | `Sources/Views` | Deck window, columns, posts, embeds, composer, dialogs, help |
 | `Tests` | Unit tests and invisible UI tests against a simulated server |
