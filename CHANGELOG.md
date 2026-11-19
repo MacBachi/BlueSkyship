@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 - IOCs in every column are marked in orange: MD5, SHA-1, SHA-256 and SHA-512 hashes, IPv4 and IPv6 addresses, CVE, EUVD and GHSA numbers, email addresses, domains and addresses, including defanged forms such as `evil[.]com` and `hxxps://`.
 - Hovering an IOC or any link opens a card with live info, without a browser: for CVEs the CVSS score, exploitation per CISA KEV, EPSS and NVD's description; for IP addresses network operator, country, open ports (Shodan InternetDB) and GreyNoise's verdict; for domains urlscan.io; for hashes CIRCL. Optional free keys for VirusTotal and AbuseIPDB add their ratings. Private IP addresses are never sent. Live info can be switched off in Settings → IOCs.
