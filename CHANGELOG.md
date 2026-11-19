@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - RSS and Atom feeds as columns, one feed or several mixed, newest first. A website address is enough; the app finds the feed. The whole article opens inside the column as plain text, without loading the publisher's page, and can be opened in the browser or shared on Bluesky or Mastodon.
 - Feedly: import the OPML export (one column per folder, in a new deck), or connect directly with a Feedly access token to read categories, single feeds or everything.
