@@ -253,6 +253,7 @@ private struct NavigationRail: View {
             railButton(tr("Alle aktualisieren (⌘R)", "Refresh all (⌘R)"), systemImage: "arrow.clockwise") {
                 deck.refreshAll()
             }
+            liveLookupSwitch
             DeckSwitcher()
             if !deck.scheduledPosts.isEmpty {
                 railButton(tr("Geplante Posts (\(deck.scheduledPosts.count))", "Scheduled posts (\(deck.scheduledPosts.count))"), systemImage: "calendar.badge.clock") {
@@ -307,6 +308,29 @@ private struct NavigationRail: View {
         }
         .padding(.vertical, 12)
         .frame(width: 52)
+    }
+
+    /// Turns the live IOC info on hover on and off without opening the settings. Orange while it asks services.
+    private var liveLookupSwitch: some View {
+        let isOn = deck.settings.liveIOCInfo
+        let help = isOn
+            ? tr("Live-Nachschlagen ist an: Hovern fragt NVD, Shodan, GreyNoise und andere. Klick schaltet aus.",
+                 "Live lookup is on: hovering asks NVD, Shodan, GreyNoise and others. Click to switch off.")
+            : tr("Live-Nachschlagen ist aus: Hovern sendet nichts. Klick schaltet ein.",
+                 "Live lookup is off: hovering sends nothing. Click to switch on.")
+        return Button {
+            deck.settings.liveIOCInfo.toggle()
+        } label: {
+            Image(systemName: isOn ? "shield.lefthalf.filled" : "shield.slash")
+                .font(.system(size: 16))
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isOn ? Color(nsColor: SelectablePostText.iocColor) : .secondary)
+        .help(help)
+        .accessibilityLabel(tr("Live-Nachschlagen", "Live lookup"))
+        .accessibilityValue(isOn ? tr("an", "on") : tr("aus", "off"))
     }
 
     private func railButton(_ help: String, systemImage: String, action: @escaping () -> Void) -> some View {

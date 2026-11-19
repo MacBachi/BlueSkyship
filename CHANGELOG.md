@@ -6,6 +6,7 @@
 - Hovering an IOC or any link opens a card with live info, without a browser: for CVEs the CVSS score, exploitation per CISA KEV, EPSS and NVD's description; for IP addresses network operator, country, open ports (Shodan InternetDB) and GreyNoise's verdict; for domains urlscan.io; for hashes CIRCL. Optional free keys for VirusTotal and AbuseIPDB add their ratings. Private IP addresses are never sent. Live info can be switched off in Settings → IOCs.
 - The card, a right-click on an IOC or link, and a click on an IOC offer lookups on VirusTotal, AbuseIPDB, Shodan, GreyNoise, urlscan.io, crt.sh, MalwareBazaar, Hybrid Analysis, NVD, CVE.org or CISA KEV, plus plain and defanged copying.
 - New column filter "Only items with IOCs".
+- A shield in the sidebar switches live lookup on hover on and off.
 - Umlauts and typographic marks written as HTML entities (such as `&ouml;` or `&ndash;`) now show as letters in feeds and Mastodon posts.
 
 ## 1.2.0
