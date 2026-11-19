@@ -81,6 +81,9 @@ final class DeckStore {
     var filterPresets: [FilterPreset] = []
     /// Set while Feedly is connected. The token itself stays in the Keychain.
     var feedly: Feedly.Connection?
+    /// Answers hover cards. Keys for VirusTotal and AbuseIPDB come from the Keychain.
+    let iocIntel = IOCIntel(keys: IntelKeychain.load())
+    private(set) var intelKeys = IntelKeychain.load()
     /// Replaced in tests, so feeds come from a simulated server.
     var feedTransport: URLSession = .shared
     var scheduledPosts: [ScheduledPost] = []
@@ -823,5 +826,19 @@ final class DeckStore {
     func copy(_ string: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(string, forType: .string)
+    }
+}
+
+extension DeckStore {
+    /// Stores the optional keys for VirusTotal and AbuseIPDB and uses them from the next card on.
+    func saveIntelKeys(_ keys: IntelKeys) {
+        let trimmed = IntelKeys(
+            virusTotal: keys.virusTotal.trimmingCharacters(in: .whitespacesAndNewlines),
+            abuseIPDB: keys.abuseIPDB.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        IntelKeychain.save(trimmed)
+        intelKeys = trimmed
+        let intel = iocIntel
+        Task { await intel.setKeys(trimmed) }
     }
 }

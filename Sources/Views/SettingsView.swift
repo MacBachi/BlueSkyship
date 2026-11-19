@@ -10,6 +10,8 @@ struct SettingsView: View {
                 .tabItem { Label(tr("Konten", "Accounts"), systemImage: "person.2") }
             FeedSettings()
                 .tabItem { Label(tr("Feeds & Filter", "Feeds & Filters"), systemImage: "dot.radiowaves.up.forward") }
+            IOCSettings()
+                .tabItem { Label("IOCs", systemImage: "shield.lefthalf.filled") }
         }
         .frame(width: 460)
     }
@@ -35,9 +37,6 @@ private struct GeneralSettings: View {
                     ForEach(ColumnWidth.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 Toggle(tr("Bilder und Videos direkt anzeigen", "Show pictures and videos directly"), isOn: $settings.showMedia)
-                Toggle(tr("IOCs hervorheben (Hashes, IPs, CVEs, Domains)", "Highlight IOCs (hashes, IPs, CVEs, domains)"), isOn: $settings.highlightIOCs)
-                    .help(tr("Ein Klick bietet Nachschlagen bei VirusTotal und Co. an. Gesendet wird erst, wenn du einen Dienst wählst.",
-                             "A click offers lookups on VirusTotal and others. Nothing is sent until you pick a service."))
                 Picker(tr("Textgröße der Posts", "Post text size"), selection: $settings.textSize) {
                     ForEach(PostTextSize.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
@@ -135,6 +134,54 @@ private struct AccountSettings: View {
             }
         } message: {
             Text(tr("Spalten, die nur mit diesem Konto funktionieren, werden entfernt.", "Columns that only work with this account will be removed."))
+        }
+    }
+}
+
+private struct IOCSettings: View {
+    @Environment(DeckStore.self) private var deck
+    @State private var virusTotal = ""
+    @State private var abuseIPDB = ""
+
+    var body: some View {
+        @Bindable var settings = deck.settings
+        Form {
+            Section {
+                Toggle(tr("IOCs hervorheben (Hashes, IPs, CVEs, Domains)", "Highlight IOCs (hashes, IPs, CVEs, domains)"), isOn: $settings.highlightIOCs)
+                Toggle(tr("Live-Infos beim Hovern", "Live info on hover"), isOn: $settings.liveIOCInfo)
+                Text(tr(
+                    "Ruht die Maus auf einem IOC oder Link, fragt die App NVD, FIRST (EPSS), RIPEstat, Shodan InternetDB, GreyNoise, urlscan.io und CIRCL. Diese Dienste erfahren dabei den IOC. Private IP-Adressen werden nie gesendet.",
+                    "When the mouse rests on an IOC or link, the app asks NVD, FIRST (EPSS), RIPEstat, Shodan InternetDB, GreyNoise, urlscan.io and CIRCL. These services learn the IOC. Private IP addresses are never sent."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Section(tr("Bewertungen (freiwillig, mit eigenem Schlüssel)", "Ratings (optional, with your own key)")) {
+                SecureField("VirusTotal", text: $virusTotal, prompt: Text(tr("API-Schlüssel", "API key")))
+                Link(tr("Kostenlosen Schlüssel bei VirusTotal holen", "Get a free key from VirusTotal"),
+                     destination: URL(string: "https://www.virustotal.com/gui/my-apikey")!)
+                    .font(.caption)
+                SecureField("AbuseIPDB", text: $abuseIPDB, prompt: Text(tr("API-Schlüssel", "API key")))
+                Link(tr("Kostenlosen Schlüssel bei AbuseIPDB holen", "Get a free key from AbuseIPDB"),
+                     destination: URL(string: "https://www.abuseipdb.com/account/api")!)
+                    .font(.caption)
+                HStack {
+                    Spacer()
+                    Button(tr("Sichern", "Save")) {
+                        deck.saveIntelKeys(IntelKeys(virusTotal: virusTotal, abuseIPDB: abuseIPDB))
+                    }
+                    .disabled(IntelKeys(virusTotal: virusTotal, abuseIPDB: abuseIPDB) == deck.intelKeys)
+                }
+                Text(tr("Die Schlüssel liegen im Schlüsselbund dieses Macs und werden nicht synchronisiert.",
+                        "The keys stay in this Mac's Keychain and are not synced."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            virusTotal = deck.intelKeys.virusTotal
+            abuseIPDB = deck.intelKeys.abuseIPDB
         }
     }
 }

@@ -31,6 +31,7 @@ struct PostMenuItems: View {
 /// a plain click still opens the thread, and a right-click still shows the post's menu.
 /// SwiftUI's `.textSelection` takes over both, so this uses AppKit's text view directly.
 struct SelectablePostText: NSViewRepresentable {
+    @Environment(DeckStore.self) private var deck: DeckStore?
     let text: AttributedString
     var fontSize: CGFloat
     var color: NSColor = .labelColor
@@ -143,9 +144,12 @@ struct SelectablePostText: NSViewRepresentable {
         context.coordinator.onMisleadingLink = onMisleadingLink
         view.onTap = onTap
         view.menuEntries = menuEntries
+        view.onOpenLink = onOpenLink
+        view.hover = deck.map { IOCHover(live: $0.settings.liveIOCInfo, intel: $0.iocIntel) }
         view.textContainer?.maximumNumberOfLines = maxLines
         view.textContainer?.lineBreakMode = maxLines > 0 ? .byTruncatingTail : .byWordWrapping
-        let content = Self.attributed(text, fontSize: fontSize, color: color, findsIOCs: findsIOCs)
+        // Hover cards replace the plain tooltips where they can appear.
+        let content = Self.attributed(text, fontSize: fontSize, color: color, findsIOCs: findsIOCs, tooltips: view.hover == nil)
         // Setting the text clears a selection, and a column redraws often.
         if view.textStorage?.isEqual(to: content) != true {
             view.textStorage?.setAttributedString(content)
@@ -162,7 +166,9 @@ struct SelectablePostText: NSViewRepresentable {
 
     static let iocColor = NSColor.systemOrange
 
-    static func attributed(_ text: AttributedString, fontSize: CGFloat, color: NSColor, findsIOCs: Bool = false) -> NSAttributedString {
+    static func attributed(
+        _ text: AttributedString, fontSize: CGFloat, color: NSColor, findsIOCs: Bool = false, tooltips: Bool = true
+    ) -> NSAttributedString {
         let result = NSMutableAttributedString(attributedString: NSAttributedString(text))
         let whole = NSRange(location: 0, length: result.length)
         result.addAttribute(.font, value: NSFont.systemFont(ofSize: fontSize), range: whole)
@@ -174,7 +180,7 @@ struct SelectablePostText: NSViewRepresentable {
             linked.insert(integersIn: range.location..<(range.location + range.length))
             result.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
             if LinkPolicy.isWebURL(url) {
-                result.addAttribute(.toolTip, value: IOCDetector.tooltip(forLink: url), range: range)
+                if tooltips { result.addAttribute(.toolTip, value: IOCDetector.tooltip(forLink: url), range: range) }
             } else {
                 result.addAttribute(.toolTip, value: tr("In der App öffnen", "Open in the app"), range: range)
             }
@@ -189,8 +195,8 @@ struct SelectablePostText: NSViewRepresentable {
                 .font: NSFont.monospacedSystemFont(ofSize: fontSize - 0.5, weight: .regular),
                 .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
                 .underlineColor: iocColor.withAlphaComponent(0.7),
-                .toolTip: IOCDetector.tooltip(for: ioc),
             ], range: ioc.range)
+            if tooltips { result.addAttribute(.toolTip, value: IOCDetector.tooltip(for: ioc), range: ioc.range) }
         }
         return result
     }
@@ -199,7 +205,128 @@ struct SelectablePostText: NSViewRepresentable {
 final class PostTextView: NSTextView {
     var onTap: (@MainActor () -> Void)?
     var menuEntries: @MainActor () -> [PostMenuEntry] = { [] }
+    var onOpenLink: @MainActor (URL) -> Void = { _ in }
     var didClickLink = false
+    /// Set when hover cards can appear; `nil` leaves the plain tooltips.
+    var hover: IOCHover?
+
+    private var hoverArea: NSTrackingArea?
+    private var hoverTask: Task<Void, Never>?
+    private var closeTask: Task<Void, Never>?
+    private var hoveredRange: NSRange?
+    private var popover: NSPopover?
+
+    /// How long the mouse rests before a card appears, so that crossing a link shows nothing.
+    static let hoverDelay: Duration = .milliseconds(450)
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard hover != nil else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let found = link(at: point), let subject = Self.subject(of: found.url) else {
+            hoveredRange = nil
+            hoverTask?.cancel()
+            closeSoon()
+            return
+        }
+        guard found.range != hoveredRange else { return }
+        hoveredRange = found.range
+        hoverTask?.cancel()
+        closeTask?.cancel()
+        hoverTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.hoverDelay)
+            guard !Task.isCancelled, let self, self.hoveredRange == found.range else { return }
+            self.showCard(subject.ioc, link: subject.link, range: found.range)
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hoveredRange = nil
+        hoverTask?.cancel()
+        closeSoon()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil { closeCard() }
+    }
+
+    /// The IOC behind a link, and the web address if it is an ordinary link.
+    static func subject(of url: URL) -> (ioc: IOC, link: URL?)? {
+        if let ioc = IOCDetector.ioc(from: url) { return (ioc, nil) }
+        if let ioc = IOCDetector.subject(forLink: url) { return (ioc, url) }
+        return nil
+    }
+
+    /// The link under a point, with the whole range it covers.
+    func link(at point: NSPoint) -> (url: URL, range: NSRange)? {
+        guard let layout = layoutManager, let container = textContainer, let storage = textStorage, storage.length > 0 else { return nil }
+        let local = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = layout.glyphIndex(for: local, in: container)
+        guard layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).contains(local) else { return nil }
+        let index = layout.characterIndexForGlyph(at: glyph)
+        guard index < storage.length else { return nil }
+        var range = NSRange()
+        let value = storage.attribute(.link, at: index, effectiveRange: &range)
+        let url = (value as? URL) ?? (value as? String).flatMap(URL.init(string:))
+        return url.map { ($0, range) }
+    }
+
+    private func showCard(_ ioc: IOC, link: URL?, range: NSRange) {
+        guard let hover, let layout = layoutManager, let container = textContainer, window != nil else { return }
+        closeCard()
+        let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        var anchor = layout.boundingRect(forGlyphRange: NSRange(location: glyphs.location, length: 1), in: container)
+        layout.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container) { rect, stop in
+            anchor = rect
+            stop.pointee = true
+        }
+        anchor = anchor.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+
+        let popover = NSPopover()
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        let open = onOpenLink
+        popover.contentViewController = NSHostingController(rootView: IOCHoverCard(
+            ioc: ioc, link: link, live: hover.live, intel: hover.intel,
+            open: { open($0) },
+            close: { [weak self] in self?.closeCard() }
+        ))
+        popover.show(relativeTo: anchor, of: self, preferredEdge: .maxY)
+        self.popover = popover
+    }
+
+    /// Closes the card once the mouse is neither on its link nor on the card itself.
+    private func closeSoon() {
+        guard popover != nil else { return }
+        closeTask?.cancel()
+        closeTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self, let popover = self.popover else { return }
+                let inCard = popover.contentViewController?.view.window?.frame.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) ?? false
+                if !inCard && self.hoveredRange == nil {
+                    self.closeCard()
+                    return
+                }
+            }
+        }
+    }
+
+    func closeCard() {
+        closeTask?.cancel()
+        popover?.close()
+        popover = nil
+    }
 
     /// A click counts as a click on the post only if it did nothing else: it selected no text,
     /// did not just clear a selection, and was not on a link.
@@ -208,6 +335,8 @@ final class PostTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        hoverTask?.cancel()
+        closeCard()
         didClickLink = false
         let hadSelection = selectedRange().length > 0
         // Runs until the button is released, selecting text if the mouse is dragged.
@@ -221,7 +350,22 @@ final class PostTextView: NSTextView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        Self.makeMenu(entries: menuEntries(), offersCopy: selectedRange().length > 0)
+        closeCard()
+        var entries = menuEntries()
+        // On a link or IOC, looking it up comes first.
+        if let found = link(at: convert(event.locationInWindow, from: nil)), let subject = Self.subject(of: found.url) {
+            let open = onOpenLink
+            var lookups = IOCLookup.services(for: subject.ioc).map { service in
+                PostMenuEntry(title: tr("Bei \(service.name) nachsehen", "Look up on \(service.name)")) { open(service.url) }
+            }
+            let copied = subject.link?.absoluteString ?? subject.ioc.value
+            lookups.append(PostMenuEntry(title: subject.link == nil ? tr("IOC kopieren", "Copy IOC") : tr("Link kopieren", "Copy Link")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(copied, forType: .string)
+            })
+            entries = lookups + (entries.isEmpty ? [] : [.separator] + entries)
+        }
+        return Self.makeMenu(entries: entries, offersCopy: selectedRange().length > 0)
     }
 
     /// Selected text comes first in the menu, because copying it is why someone right-clicks there.

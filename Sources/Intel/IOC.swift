@@ -263,6 +263,30 @@ enum IOCDetector {
         return IOC(kind: kind, value: value, range: NSRange(location: 0, length: 0), wasDefanged: defanged)
     }
 
+    /// What a web link is about: a CVE or hash named in its address, the IP address it goes to,
+    /// or else the address itself.
+    static func subject(forLink url: URL) -> IOC? {
+        guard LinkPolicy.isWebURL(url) else { return nil }
+        let text = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        let whole = NSRange(location: 0, length: (text as NSString).length)
+        if let match = cvePattern.firstMatch(in: text, range: whole) {
+            return IOC(kind: .cve, value: (text as NSString).substring(with: match.range).uppercased(), range: NSRange(), wasDefanged: false)
+        }
+        if let match = hashPattern.firstMatch(in: text, range: whole) {
+            let value = (text as NSString).substring(with: match.range).lowercased()
+            let kind: IOCKind = value.count == 32 ? .md5 : value.count == 40 ? .sha1 : value.count == 64 ? .sha256 : .sha512
+            if value.contains(where: \.isLetter), value.contains(where: \.isNumber) {
+                return IOC(kind: kind, value: value, range: NSRange(), wasDefanged: false)
+            }
+        }
+        if let host = url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) {
+            var v4 = in_addr()
+            if inet_pton(AF_INET, host, &v4) == 1 { return IOC(kind: .ipv4, value: host, range: NSRange(), wasDefanged: false) }
+            if isIPv6(host) { return IOC(kind: .ipv6, value: host.lowercased(), range: NSRange(), wasDefanged: false) }
+        }
+        return IOC(kind: .url, value: url.absoluteString, range: NSRange(), wasDefanged: false)
+    }
+
     /// What hovering shows: what it is, its usable form, and what a click offers.
     static func tooltip(for ioc: IOC) -> String {
         var lines = [ioc.kind.label + (ioc.wasDefanged ? tr(" · entschärft geschrieben", " · written defanged") : "")]

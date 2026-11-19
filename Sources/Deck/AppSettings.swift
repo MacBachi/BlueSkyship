@@ -51,6 +51,7 @@ final class AppSettings {
         static let iCloudSync = "settings.iCloudSync"
         static let mastodonVisibility = "settings.mastodonVisibility"
         static let highlightIOCs = "settings.highlightIOCs"
+        static let liveIOCInfo = "settings.liveIOCInfo"
     }
 
     private let defaults: UserDefaults
@@ -79,8 +80,12 @@ final class AppSettings {
     /// Marks hashes, IP addresses, CVE numbers and domains in all texts, with lookups on a click.
     var highlightIOCs: Bool { didSet { defaults.set(highlightIOCs, forKey: Key.highlightIOCs) } }
 
+    /// Asks NVD, Shodan, GreyNoise and others about an IOC while the mouse rests on it.
+    var liveIOCInfo: Bool { didSet { defaults.set(liveIOCInfo, forKey: Key.liveIOCInfo) } }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        liveIOCInfo = defaults.object(forKey: Key.liveIOCInfo) as? Bool ?? true
         highlightIOCs = defaults.object(forKey: Key.highlightIOCs) as? Bool ?? true
         requireAltText = defaults.object(forKey: Key.requireAltText) as? Bool ?? false
         iCloudSync = defaults.object(forKey: Key.iCloudSync) as? Bool ?? true

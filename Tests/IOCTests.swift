@@ -128,3 +128,137 @@ struct IOCTests {
         #expect(ColumnFilter(onlyWithIOCs: true).isActive)
     }
 }
+
+@Suite("IOC live info")
+struct IOCIntelTests {
+    /// Every service on one simulated host, told apart by path.
+    private func endpoints(_ host: String) -> IntelEndpoints {
+        let base = "https://\(host)"
+        return IntelEndpoints(
+            nvd: URL(string: "\(base)/nvd")!, epss: URL(string: "\(base)/epss")!, ripe: URL(string: "\(base)/ripe/")!,
+            internetDB: URL(string: "\(base)/idb/")!, greyNoise: URL(string: "\(base)/gn/")!, urlscan: URL(string: "\(base)/us/")!,
+            circl: URL(string: "\(base)/circl/")!, virusTotal: URL(string: "\(base)/vt/")!, abuseIPDB: URL(string: "\(base)/abuse")!
+        )
+    }
+
+    private func ioc(_ kind: IOCKind, _ value: String) -> IOC { IOC(kind: kind, value: value, range: NSRange(), wasDefanged: false) }
+    private func json(_ text: String) -> (Int, Data) { (200, Data(text.utf8)) }
+
+    @Test func cveCardShowsScoreExploitationAndEPSS() async {
+        StubProtocol.register(host: "cve.intel.test") { request in
+            let path = request.url!.path
+            if path.hasPrefix("/nvd") {
+                return json(#"{"vulnerabilities":[{"cve":{"published":"2021-12-10T10:15:09.143","cisaExploitAdd":"2021-12-10","cisaActionDue":"2021-12-24","cisaVulnerabilityName":"Apache Log4j2 RCE","descriptions":[{"lang":"es","value":"x"},{"lang":"en","value":"JNDI lookups run code."}],"metrics":{"cvssMetricV31":[{"type":"Primary","cvssData":{"baseScore":10.0,"baseSeverity":"CRITICAL"}}]},"weaknesses":[{"description":[{"lang":"en","value":"CWE-502"}]}]}}]}"#)
+            }
+            if path.hasPrefix("/epss") { return json(#"{"data":[{"cve":"CVE-2021-44228","epss":"0.97","percentile":"0.999"}]}"#) }
+            return (500, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("cve.intel.test"))
+        let report = await intel.report(for: ioc(.cve, "CVE-2021-44228"))
+        #expect(report.title == "Apache Log4j2 RCE")
+        #expect(report.summary == "JNDI lookups run code.")
+        let cvss = report.facts.first { $0.label == "CVSS 3.1" }
+        #expect(cvss?.value.hasPrefix("10.0") == true)
+        #expect(cvss?.tone == .bad)
+        #expect(report.facts.first { $0.label == "KEV" }?.tone == .bad)
+        #expect(report.facts.first { $0.label == "EPSS" }?.tone == .bad)
+        #expect(report.facts.contains { $0.value.contains("CWE-502") })
+        #expect(report.notes.isEmpty)
+    }
+
+    @Test func ipCardCombinesNetworkPortsAndScannerVerdict() async {
+        StubProtocol.register(host: "ip.intel.test") { request in
+            let path = request.url!.path
+            if path.contains("prefix-overview") { return json(#"{"data":{"resource":"185.220.101.0/24","asns":[{"asn":60729,"holder":"Example Hosting"}]}}"#) }
+            if path.contains("maxmind") { return json(#"{"data":{"located_resources":[{"locations":[{"country":"DE","city":"Berlin"}]}]}}"#) }
+            if path.hasPrefix("/idb/") { return json(#"{"ports":[22,443],"hostnames":[],"tags":["tor"],"vulns":["CVE-2023-1","CVE-2024-2"]}"#) }
+            if path.hasPrefix("/gn/") { return json(#"{"noise":true,"riot":false,"classification":"malicious","name":"unknown","last_seen":"2026-11-18"}"#) }
+            return (500, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("ip.intel.test"))
+        let report = await intel.report(for: ioc(.ipv4, "185.220.101.4"))
+        #expect(report.facts.contains { $0.value.contains("AS60729 Example Hosting") })
+        #expect(report.facts.contains { $0.value.contains("Berlin") })
+        #expect(report.facts.contains { $0.value.contains("22, 443") })
+        #expect(report.facts.first { $0.source == "GreyNoise" }?.tone == .bad)
+        #expect(report.notes.contains { $0.contains("VirusTotal") })
+    }
+
+    @Test func privateAddressesAreNeverSent() async {
+        let seen = SeenRequests()
+        StubProtocol.register(host: "private.intel.test") { request in
+            seen.add(request)
+            return (200, Data("{}".utf8))
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("private.intel.test"))
+        for address in ["10.1.2.3", "192.168.0.1", "127.0.0.1", "172.20.0.5", "fe80::1"] {
+            let kind: IOCKind = address.contains(":") ? .ipv6 : .ipv4
+            let report = await intel.report(for: ioc(kind, address))
+            #expect(report.facts.isEmpty)
+        }
+        #expect(seen.urls.isEmpty)
+    }
+
+    @Test func asksOnlyOnceForTheSameIOC() async {
+        let seen = SeenRequests()
+        StubProtocol.register(host: "cache.intel.test") { request in
+            seen.add(request)
+            return (404, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("cache.intel.test"))
+        _ = await intel.report(for: ioc(.sha256, String(repeating: "ab12", count: 16)))
+        let first = seen.urls.count
+        _ = await intel.report(for: ioc(.sha256, String(repeating: "ab12", count: 16)))
+        #expect(first == 1)
+        #expect(seen.urls.count == first)
+    }
+
+    @Test func virusTotalKeyIsSentAndRatesTheFile() async {
+        StubProtocol.register(host: "vt.intel.test") { request in
+            let path = request.url!.path
+            if path.hasPrefix("/vt/files/") {
+                guard request.value(forHTTPHeaderField: "x-apikey") == "made-up-key" else { return (401, Data()) } // secret-scan:allow (made-up test value)
+                return json(#"{"data":{"attributes":{"meaningful_name":"evil.exe","type_description":"Win32 EXE","last_analysis_stats":{"malicious":40,"suspicious":2,"harmless":0,"undetected":30}}}}"#)
+            }
+            return (404, Data())
+        }
+        let intel = IOCIntel(keys: IntelKeys(virusTotal: "made-up-key"), transport: StubProtocol.session(), endpoints: endpoints("vt.intel.test")) // secret-scan:allow (made-up test value)
+        let report = await intel.report(for: ioc(.md5, "44d88612fea8a8f36de82e1278abb02f"))
+        let rating = report.facts.first { $0.label == "VirusTotal" }
+        #expect(rating?.value.contains("40") == true)
+        #expect(rating?.tone == .bad)
+        #expect(report.facts.contains { $0.value.contains("evil.exe") })
+        #expect(!report.notes.contains { $0.contains("⌘,") })
+    }
+
+    @Test func aFailingServiceLeavesANoteAndTheRestStillShows() async {
+        StubProtocol.register(host: "partial.intel.test") { request in
+            if request.url!.path.hasPrefix("/epss") { return json(#"{"data":[{"epss":"0.01","percentile":"0.5"}]}"#) }
+            return (429, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("partial.intel.test"))
+        let report = await intel.report(for: ioc(.cve, "CVE-2024-3094"))
+        #expect(report.facts.contains { $0.label == "EPSS" })
+        #expect(report.notes.contains { $0.contains("NVD") })
+    }
+
+    @Test func linksAreAboutTheCVEOrAddressTheyName() throws {
+        let nvd = try #require(URL(string: "https://nvd.nist.gov/vuln/detail/CVE-2024-3094"))
+        #expect(IOCDetector.subject(forLink: nvd)?.kind == .cve)
+        #expect(IOCDetector.subject(forLink: nvd)?.value == "CVE-2024-3094")
+        let ip = try #require(URL(string: "http://45.148.10.99/payload"))
+        #expect(IOCDetector.subject(forLink: ip)?.kind == .ipv4)
+        let plain = try #require(URL(string: "https://www.heise.de/news"))
+        #expect(IOCDetector.subject(forLink: plain)?.kind == .url)
+        #expect(IOCDetector.subject(forLink: plain)?.host == "www.heise.de")
+        let mention = try #require(URL(string: "bskyship://profile?v=did:plc:abc"))
+        #expect(PostTextView.subject(of: mention) == nil)
+    }
+
+    @MainActor @Test func hoverCardsReplaceTooltips() {
+        let text = AttributedString("CVE-2024-3094")
+        let withCards = SelectablePostText.attributed(text, fontSize: 13, color: .labelColor, findsIOCs: true, tooltips: false)
+        #expect(withCards.attribute(.toolTip, at: 0, effectiveRange: nil) == nil)
+        #expect(withCards.attribute(.link, at: 0, effectiveRange: nil) != nil)
+    }
+}
