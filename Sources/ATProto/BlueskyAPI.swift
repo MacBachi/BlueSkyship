@@ -87,6 +87,8 @@ extension XRPCClient {
             return FeedPage(items: [], cursor: nil)
         case .localTimeline, .federatedTimeline:
             throw XRPCError(status: 0, code: nil, message: tr("Das gibt es nur bei Mastodon.", "Only Mastodon has this."))
+        case .rss, .feedly:
+            throw URLError(.unsupportedURL)
         case .notifications:
             return try await notificationPage(reasons: [], cursor: cursor, limit: limitValue)
         case .mentions:

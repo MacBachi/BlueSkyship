@@ -228,6 +228,8 @@ struct AddColumnSheet: View {
     @State private var selectedList: Mastodon.List?
     @State private var errorMessage: String?
     @State private var isWorking = false
+    /// Feeds need no account and have a form of their own.
+    @State private var showsFeeds = false
 
     private var accounts: [Account] { deck.accounts.accounts }
     private var network: SocialNetwork { deck.accounts.network(of: accountDID) ?? .bluesky }
@@ -236,6 +238,28 @@ struct AddColumnSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(tr("Spalte hinzufügen", "Add Column")).font(.title2.weight(.semibold))
+            Picker(tr("Art", "Kind"), selection: $showsFeeds) {
+                Text("Bluesky & Mastodon").tag(false)
+                Text(tr("RSS & Feedly", "RSS & Feedly")).tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            if showsFeeds {
+                FeedSourceForm()
+            } else {
+                networkForm
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .onAppear {
+            accountDID = accounts.first?.did
+            if !accounts.isEmpty { choice = .home }
+        }
+    }
+
+    @ViewBuilder
+    private var networkForm: some View {
             Form {
                 Picker(tr("Konto", "Account"), selection: $accountDID) {
                     if choice == .search, !accounts.isEmpty {
@@ -278,13 +302,6 @@ struct AddColumnSheet: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(isWorking || !isComplete)
             }
-        }
-        .padding(20)
-        .frame(width: 440)
-        .onAppear {
-            accountDID = accounts.first?.did
-            if !accounts.isEmpty { choice = .home }
-        }
         .onChange(of: choice) { _, new in
             errorMessage = nil
             if new == .search, deck.hasBothNetworks {

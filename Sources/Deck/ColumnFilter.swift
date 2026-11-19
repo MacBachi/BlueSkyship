@@ -6,26 +6,79 @@ struct ColumnFilter: Codable, Hashable, Sendable {
     var includeTerms: [String] = []
     /// Hide an item if it contains any of these. Beats `includeTerms`.
     var excludeTerms: [String] = []
+    /// Always show an item that contains any of these, whatever else would hide it.
+    var alwaysShowTerms: [String] = []
     var mediaOnly = false
     var hideReposts = false
     var hideReplies = false
 
+    init(
+        includeTerms: [String] = [], excludeTerms: [String] = [], alwaysShowTerms: [String] = [],
+        mediaOnly: Bool = false, hideReposts: Bool = false, hideReplies: Bool = false
+    ) {
+        self.includeTerms = includeTerms
+        self.excludeTerms = excludeTerms
+        self.alwaysShowTerms = alwaysShowTerms
+        self.mediaOnly = mediaOnly
+        self.hideReposts = hideReposts
+        self.hideReplies = hideReplies
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case includeTerms, excludeTerms, alwaysShowTerms, mediaOnly, hideReposts, hideReplies
+    }
+
+    /// Filters saved before a field existed still load, with that field empty.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        includeTerms = try container.decodeIfPresent([String].self, forKey: .includeTerms) ?? []
+        excludeTerms = try container.decodeIfPresent([String].self, forKey: .excludeTerms) ?? []
+        alwaysShowTerms = try container.decodeIfPresent([String].self, forKey: .alwaysShowTerms) ?? []
+        mediaOnly = try container.decodeIfPresent(Bool.self, forKey: .mediaOnly) ?? false
+        hideReposts = try container.decodeIfPresent(Bool.self, forKey: .hideReposts) ?? false
+        hideReplies = try container.decodeIfPresent(Bool.self, forKey: .hideReplies) ?? false
+    }
+
     var isActive: Bool {
-        !includeTerms.isEmpty || !excludeTerms.isEmpty || mediaOnly || hideReposts || hideReplies
+        !includeTerms.isEmpty || !excludeTerms.isEmpty || !alwaysShowTerms.isEmpty || mediaOnly || hideReposts || hideReplies
     }
 
     func apply(_ items: [ColumnItem]) -> [ColumnItem] {
-        guard isActive else { return items }
-        let includes = includeTerms.map(Term.init)
-        let excludes = excludeTerms.map(Term.init)
-        return items.filter { item in
-            if mediaOnly, !item.hasMedia { return false }
-            if hideReposts, item.isRepost { return false }
-            if hideReplies, item.isReply { return false }
-            guard !includes.isEmpty || !excludes.isEmpty else { return true }
+        Self.apply([self], to: items)
+    }
 
-            let text = Self.fold(item.searchableText)
-            let handle = Self.fold(item.authorHandle.map { "@\($0)" } ?? "")
+    /// Several filters at once, such as a column's own and the saved ones it uses. An item shows if any
+    /// filter always shows it, or else if every filter lets it through.
+    static func apply(_ filters: [ColumnFilter], to items: [ColumnItem]) -> [ColumnItem] {
+        let active = filters.filter(\.isActive)
+        guard !active.isEmpty else { return items }
+        let compiled = active.map(Compiled.init)
+        let always = compiled.flatMap(\.always)
+        return items.filter { item in
+            let text = fold(item.searchableText)
+            let handle = fold(item.authorHandle.map { "@\($0)" } ?? "")
+            if always.contains(where: { $0.matches(text: text, handle: handle) }) { return true }
+            return compiled.allSatisfy { $0.passes(item, text: text, handle: handle) }
+        }
+    }
+
+    private struct Compiled {
+        let filter: ColumnFilter
+        let includes: [Term]
+        let excludes: [Term]
+        let always: [Term]
+
+        init(_ filter: ColumnFilter) {
+            self.filter = filter
+            includes = filter.includeTerms.map(Term.init)
+            excludes = filter.excludeTerms.map(Term.init)
+            always = filter.alwaysShowTerms.map(Term.init)
+        }
+
+        func passes(_ item: ColumnItem, text: String, handle: String) -> Bool {
+            if filter.mediaOnly, !item.hasMedia { return false }
+            if filter.hideReposts, item.isRepost { return false }
+            if filter.hideReplies, item.isReply { return false }
             if excludes.contains(where: { $0.matches(text: text, handle: handle) }) { return false }
             return includes.isEmpty || includes.contains { $0.matches(text: text, handle: handle) }
         }
@@ -143,6 +196,9 @@ extension ColumnItem {
     var searchableText: String {
         guard let post = displayedPost else { return "" }
         var parts = [post.record.text]
+        if let article = post.article {
+            parts += [article.source, article.author, article.link].compactMap { $0 }
+        }
         for facet in post.record.facets ?? [] {
             for case .link(let uri) in facet.features { parts.append(uri) }
         }

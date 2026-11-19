@@ -5,7 +5,7 @@
 <h1 align="center">BlueSkyship</h1>
 
 <p align="center">
-  A native macOS deck client for <a href="https://bsky.app">Bluesky</a> and <a href="https://joinmastodon.org">Mastodon</a>.<br>
+  A native macOS deck client for <a href="https://bsky.app">Bluesky</a> and <a href="https://joinmastodon.org">Mastodon</a>, with RSS and Feedly.<br>
   Keep your timeline, searches, feeds and messages side by side, in columns.
 </p>
 
@@ -20,10 +20,11 @@
 
 ## Features
 
-- **Columns:** home, notifications, mentions, searches, profiles, feeds, lists, likes, bookmarks and direct messages. Move and resize them freely, and see at a glance which columns are out of view.
+- **Columns:** home, notifications, mentions, searches, profiles, feeds, lists, likes, bookmarks and direct messages. Move them freely, from narrow to very wide, and see at a glance which columns are out of view.
 - **Bluesky and Mastodon side by side:** columns of both networks in the same deck, each tied to its account. Searches and hashtags can mix both networks in one column. Each account has a colour, and a thin strip on every post shows where it came from. Mastodon adds local and federated timelines, lists, visibility and content warnings.
+- **RSS, Atom and Feedly:** feed articles as columns next to posts, one feed or several mixed. The whole text opens inside the column, without loading the publisher's page. Paste a website address and the app finds its feed. Import an OPML file from Feedly or any other reader, or connect Feedly directly with an access token.
 - **Several decks:** switch between sets of columns with `⌘1` to `⌘9`.
-- **Filters per column:** only certain words, hide words or `@handles`, only posts with media, no reposts, no replies. Filters run locally.
+- **Filters per column:** always hide words or `@handles`, always show others whatever else hides them, only certain words, only items with media, no reposts, no replies. Save a filter under a name and tick it in any column. Filters run locally.
 - **Favorites:** people, hashtags, searches, feeds and lists within reach, without taking up a column. Pin one when you want it to stay.
 - **Composer:** threads, drafts, scheduled posts, up to four images, video and reply rules. Images are downscaled and stripped of metadata such as the GPS location.
 - **Your own posts:** see everything you posted with reactions, and who liked, reposted or quoted it.
@@ -71,6 +72,8 @@ For **Mastodon**, choose Mastodon at the top of the sign-in window and enter you
 - iCloud sync uses the last change for a whole list, so simultaneous edits on two Macs can overwrite each other. Sync between two Macs has not been verified yet.
 - There is no iPhone or iPad version.
 - Mastodon: voting in polls, accepting follow requests and editing posts work only in the browser for now.
+- Feeds are read over https only; a feed offered only over plain http cannot be added. Read state is not synced back to Feedly.
+- Feedly hands out access tokens only on some plans, and they expire. The OPML import works with every plan.
 
 ## Build from source
 
@@ -92,6 +95,7 @@ To sign with your own Apple Developer account, see [CONTRIBUTING.md](CONTRIBUTIN
 | --- | --- |
 | `Sources/ATProto` | XRPC client with token refresh, data models, API calls, facets |
 | `Sources/Mastodon` | Mastodon client, OAuth sign-in, safe HTML reader, mapping into the shared models |
+| `Sources/Feeds` | RSS, Atom and OPML reading, feed discovery, Feedly client, mapping articles into columns |
 | `Sources/Deck` | Columns and their loading state, accounts, actions, iCloud sync |
 | `Sources/Views` | Deck window, columns, posts, embeds, composer, dialogs, help |
 | `Tests` | Unit tests and invisible UI tests against a simulated server |

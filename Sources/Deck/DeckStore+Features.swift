@@ -452,23 +452,25 @@ extension DeckStore {
         case .addColumn: isAddingColumn = true
         case .open:
             guard let (column, post) = focusedPost() else { return false }
-            columnRequest = ColumnNavigationRequest(columnID: column.id, action: .push(.thread(post)))
+            columnRequest = ColumnNavigationRequest(columnID: column.id, action: .push(post.isArticle ? .article(post) : .thread(post)))
         case .back:
             guard let column = focusedColumn else { return false }
             columnRequest = ColumnNavigationRequest(columnID: column.id, action: .back)
         case .like:
-            guard let (column, post) = focusedPost() else { return true }
+            guard let (column, post) = focusedPost(), !post.isArticle else { return true }
             let feed = feed(for: column)
             Task { await toggleLike(post, accountDID: post.sourceAccountDID ?? column.accountDID) { feed.replace(post: $0) } }
         case .repost:
-            guard let (column, post) = focusedPost() else { return true }
+            guard let (column, post) = focusedPost(), !post.isArticle else { return true }
             let feed = feed(for: column)
             Task { await toggleRepost(post, accountDID: post.sourceAccountDID ?? column.accountDID) { feed.replace(post: $0) } }
         case .reply:
-            guard let (column, post) = focusedPost() else { return true }
+            guard let (column, post) = focusedPost(), !post.isArticle else { return true }
             startCompose(replyTo: post, accountDID: post.sourceAccountDID ?? column.accountDID)
         case .quote:
             guard let (column, post) = focusedPost() else { return true }
+            // An article cannot be quoted, but it can be shared.
+            if post.isArticle { shareArticle(post); return true }
             startCompose(quote: post, accountDID: post.sourceAccountDID ?? column.accountDID)
         }
         return true
@@ -614,11 +616,13 @@ struct CloudDocuments {
     let favorites: CloudDocument<Favorite>
     let decks: CloudDocument<DeckPage>
     let drafts: CloudDocument<SavedDraft>
+    let filterPresets: CloudDocument<FilterPreset>
 
     init(store: CloudStore, defaults: UserDefaults) {
         favorites = CloudDocument(key: "favorites", store: store, defaults: defaults)
         decks = CloudDocument(key: "decks", store: store, defaults: defaults)
         drafts = CloudDocument(key: "drafts", store: store, defaults: defaults)
+        filterPresets = CloudDocument(key: "filterPresets", store: store, defaults: defaults)
     }
 }
 
@@ -663,6 +667,10 @@ extension DeckStore {
         if let pages = documents.drafts.reconcile(local: drafts) {
             drafts = pages
             saveDraftsLocally()
+        }
+        if let presets = documents.filterPresets.reconcile(local: filterPresets) {
+            filterPresets = presets
+            saveFilterPresets()
         }
         if let pages = documents.decks.reconcile(local: decks), !pages.isEmpty {
             decks = pages

@@ -172,6 +172,8 @@ actor MastodonClient: SocialReader {
         let limitValue = String(min(limit, 40))
         var query: [(String, String?)] = [("limit", limitValue), ("max_id", cursor)]
         switch kind {
+        case .rss, .feedly:
+            throw Self.unsupported
         case .home:
             return try await statusPage("api/v1/timelines/home", query)
         case .localTimeline:

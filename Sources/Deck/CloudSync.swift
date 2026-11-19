@@ -22,8 +22,8 @@ enum CloudPushOutcome: Equatable {
 
 @MainActor
 final class CloudDocument<Item: Codable & Identifiable> {
-    /// The store allows 1 MB per key and in total. Three lists have to fit, and text is small.
-    static var maxBytes: Int { 300_000 }
+    /// The store allows 1 MB per key and in total. Four lists have to fit, and text is small.
+    static var maxBytes: Int { 240_000 }
 
     private let key: String
     private let store: CloudStore

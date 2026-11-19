@@ -8,6 +8,8 @@ struct SettingsView: View {
                 .tabItem { Label(tr("Allgemein", "General"), systemImage: "gearshape") }
             AccountSettings()
                 .tabItem { Label(tr("Konten", "Accounts"), systemImage: "person.2") }
+            FeedSettings()
+                .tabItem { Label(tr("Feeds & Filter", "Feeds & Filters"), systemImage: "dot.radiowaves.up.forward") }
         }
         .frame(width: 460)
     }

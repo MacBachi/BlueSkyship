@@ -35,6 +35,18 @@ final class ColumnFeed {
         }
     }
 
+    /// Saved filters the column uses, on top of its own.
+    var presets: [ColumnFilter] = [] {
+        didSet {
+            guard presets != oldValue else { return }
+            refreshVisible()
+            anchorID = nil
+            autoFillBudget = Self.maxPagesPerLoad
+        }
+    }
+
+    var isFiltering: Bool { filter.isActive || presets.contains(where: \.isActive) }
+
     /// Pages that may still be fetched without being asked, per filter. Without this limit, a filter
     /// with no matches would fetch more pages on every auto-refresh, forever.
     private var autoFillBudget = ColumnFeed.maxPagesPerLoad
@@ -61,7 +73,7 @@ final class ColumnFeed {
     @ObservationIgnored var isOwnPost: (PostView) -> Bool = { _ in false }
 
     private func shown(_ items: [ColumnItem]) -> [ColumnItem] {
-        filter.apply(items).filter { item in
+        ColumnFilter.apply([filter] + presets, to: items).filter { item in
             if isSearching, !item.matchesSearch(searchTerm) { return false }
             guard let post = item.displayedPost else { return true }
             return moderation.decision(for: post, isOwn: isOwnPost(post)) != .hide
@@ -105,7 +117,7 @@ final class ColumnFeed {
 
     /// Keeps a filtered column from looking empty just because the first page had few matches.
     func fillIfNeeded(using client: any SocialReader, kind: ColumnKind) async {
-        guard filter.isActive || isSearching, !items.isEmpty, autoFillBudget > 0 else { return }
+        guard isFiltering || isSearching, !items.isEmpty, autoFillBudget > 0 else { return }
         await fetchPages(until: Self.minimumVisibleItems, usesAutoFillBudget: true, using: client, kind: kind)
     }
 

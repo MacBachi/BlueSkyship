@@ -19,6 +19,7 @@ struct ColumnView: View {
     @State private var isDropTarget = false
     @State private var isEditingFilter = false
     @State private var isSearchOpen = false
+    @State private var isEditingFeeds = false
     @FocusState private var isSearchFocused: Bool
 
     private var feed: ColumnFeed { deck.feed(for: column) }
@@ -28,6 +29,7 @@ struct ColumnView: View {
         return false
     }
     private var account: Account? { deck.accounts.accounts.first { $0.did == column.accountDID } }
+    private var hasFilter: Bool { column.filter != nil || !(column.presetIDs ?? []).isEmpty }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +42,7 @@ struct ColumnView: View {
                     searchBar
                     Divider()
                 }
-                if column.filter != nil {
+                if hasFilter {
                     filterStatus
                     Divider()
                 }
@@ -95,7 +97,7 @@ struct ColumnView: View {
             await autoRefreshLoop()
         }
         // Waits for a typing pause, so not every keystroke fetches more pages.
-        .task(id: column.filter) {
+        .task(id: "\(String(describing: column.filter))#\(column.presetIDs ?? [])") {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let client = deck.readClient(for: column) else { return }
             await feed.fillIfNeeded(using: client, kind: column.kind)
@@ -130,6 +132,9 @@ struct ColumnView: View {
             .id(route)
         case .people(let actor, let list):
             PeoplePanel(actor: actor, list: list, accountDID: column.accountDID, onBack: { routes.removeLast() })
+                .id(route)
+        case .article(let post):
+            ArticlePanel(post: post, onBack: { routes.removeLast() })
                 .id(route)
         case .profile(let actor):
             ProfilePanel(
@@ -251,6 +256,11 @@ struct ColumnView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                } else if let source = feedSourceLabel {
+                    Text(source)
+                        .lineLimit(1)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else if deck.isMixed(column), deck.hasBothNetworks {
                     HStack(spacing: 4) {
                         ForEach(deck.mixedSources, id: \.accountDID) { AccountDot(accountDID: $0.accountDID, size: 6) }
@@ -281,15 +291,15 @@ struct ColumnView: View {
                 Button {
                     isEditingFilter.toggle()
                 } label: {
-                    Image(systemName: column.filter == nil
+                    Image(systemName: !hasFilter
                         ? "line.3.horizontal.decrease.circle"
                         : "line.3.horizontal.decrease.circle.fill")
                         .modifier(HeaderIconTarget())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(column.filter == nil ? Color.secondary : Color.accentColor)
+                .foregroundStyle(!hasFilter ? Color.secondary : Color.accentColor)
                 .help(tr("Spalte filtern", "Filter column"))
-                .accessibilityLabel(column.filter == nil ? tr("Spalte filtern", "Filter column") : tr("Filter bearbeiten, Filter aktiv", "Edit filter, filter is on"))
+                .accessibilityLabel(!hasFilter ? tr("Spalte filtern", "Filter column") : tr("Filter bearbeiten, Filter aktiv", "Edit filter, filter is on"))
                 .popover(isPresented: $isEditingFilter, arrowEdge: .bottom) {
                     ColumnFilterEditor(column: column)
                 }
@@ -353,6 +363,19 @@ struct ColumnView: View {
         .help(favoritePreview == nil ? tr("Zum Umsortieren ziehen", "Drag to reorder") : "")
     }
 
+    private var feedSourceLabel: String? {
+        switch column.kind {
+        case .rss(let feeds, _):
+            return feeds.count == 1
+                ? (URL(string: feeds[0])?.host ?? "RSS")
+                : tr("RSS · \(feeds.count) Feeds", "RSS · \(feeds.count) feeds")
+        case .feedly:
+            return deck.feedly.map { "Feedly · \($0.name)" } ?? "Feedly"
+        default:
+            return nil
+        }
+    }
+
     private var columnMenu: some View {
         Menu {
             Picker(tr("Breite", "Width"), selection: Binding(
@@ -362,6 +385,10 @@ struct ColumnView: View {
                 ForEach(ColumnWidth.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             Divider()
+            if case .rss = column.kind {
+                Button(tr("Feeds bearbeiten …", "Edit Feeds…")) { isEditingFeeds = true }
+                Divider()
+            }
             if case .notifications = column.kind, let did = column.accountDID {
                 Button(tr("Alle als gelesen markieren", "Mark All as Read")) {
                     Task { await deck.markNotificationsRead(accountDID: did) }
@@ -391,6 +418,9 @@ struct ColumnView: View {
         .foregroundStyle(.secondary)
         .fixedSize()
         .accessibilityLabel(tr("Spaltenmenü", "Column menu"))
+        .sheet(isPresented: $isEditingFeeds) {
+            FeedColumnEditor(column: column)
+        }
     }
 
     // MARK: Timeline
@@ -398,7 +428,14 @@ struct ColumnView: View {
     @ViewBuilder
     private var timeline: some View {
         @Bindable var feed = feed
-        if deck.readClient(for: column) == nil {
+        if case .feedly = column.kind, deck.feedly == nil {
+            ContentUnavailableView {
+                Label(tr("Feedly nicht verbunden", "Feedly not connected"), systemImage: "newspaper")
+            } description: {
+                Text(FeedlyError.notConnected.localizedDescription)
+            }
+            .frame(maxHeight: .infinity)
+        } else if deck.readClient(for: column) == nil {
             ContentUnavailableView {
                 Label(tr("Nicht angemeldet", "Not signed in"), systemImage: "person.crop.circle.badge.exclamationmark")
             } description: {
@@ -519,6 +556,8 @@ struct ColumnView: View {
     @ViewBuilder
     private func row(for item: ColumnItem) -> some View {
         switch item {
+        case .post(let entry) where entry.post.isArticle:
+            ArticleRow(post: entry.post) { routes.append(.article(entry.post)) }
         case .post(let entry):
             PostRow(
                 post: entry.post,

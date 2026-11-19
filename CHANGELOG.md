@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- RSS and Atom feeds as columns, one feed or several mixed, newest first. A website address is enough; the app finds the feed. The whole article opens inside the column as plain text, without loading the publisher's page, and can be opened in the browser or shared on Bluesky or Mastodon.
+- Feedly: import the OPML export (one column per folder, in a new deck), or connect directly with a Feedly access token to read categories, single feeds or everything.
+- Filters: "Always show" terms beat every other rule. Filters can be saved under a name and ticked in any column; a change applies to every column using it. Saved filters sync through iCloud.
+- Two wider column widths: Extra Wide and Widest.
+- Decks containing feed columns or saved filters need this version on every Mac that syncs them through iCloud.
+
 ## 1.1.0
 
 - Mastodon accounts next to Bluesky accounts, in the same decks. Sign-in runs on the server's own page in the browser (OAuth with PKCE); the app never sees the password.

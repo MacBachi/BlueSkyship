@@ -39,10 +39,22 @@ enum ColumnKind: Codable, Hashable, Sendable {
     case localTimeline
     /// Everything public that the account's Mastodon server knows of.
     case federatedTimeline
+    /// Articles from one or more RSS or Atom feeds, newest first.
+    case rss(feeds: [String], name: String)
+    /// A Feedly category, feed or everything, read with the connected Feedly token.
+    case feedly(streamID: String, name: String)
 
     var isSearch: Bool {
         if case .search = self { return true }
         return false
+    }
+
+    /// Articles from feeds rather than posts from a network. No account reads them.
+    var isFeedSource: Bool {
+        switch self {
+        case .rss, .feedly: return true
+        default: return false
+        }
     }
 
     var isOwnPosts: Bool {
@@ -56,7 +68,7 @@ enum ColumnKind: Codable, Hashable, Sendable {
         case .home, .notifications, .mentions, .search, .ownPosts, .likes, .bookmarks, .messages,
              .localTimeline, .federatedTimeline: return true
         case .author(let actor), .profileTab(let actor, _): return MastodonID.isActor(actor)
-        case .feed, .list: return false
+        case .feed, .list, .rss, .feedly: return false
         }
     }
 
@@ -70,7 +82,7 @@ enum ColumnKind: Codable, Hashable, Sendable {
         case .bookmarks: return tr("Lesezeichen", "Bookmarks")
         case .messages: return tr("Direktnachrichten", "Direct Messages")
         case .author(let actor), .profileTab(let actor, _): return "@\(actor)"
-        case .feed(_, let name), .list(_, let name): return name
+        case .feed(_, let name), .list(_, let name), .rss(_, let name), .feedly(_, let name): return name
         case .search(let query): return query
         case .localTimeline: return tr("Lokal", "Local")
         case .federatedTimeline: return tr("Föderiert", "Federated")
@@ -92,18 +104,22 @@ enum ColumnKind: Codable, Hashable, Sendable {
         case .search: return "magnifyingglass"
         case .localTimeline: return "person.3"
         case .federatedTimeline: return "globe"
+        case .rss: return "dot.radiowaves.up.forward"
+        case .feedly: return "newspaper"
         }
     }
 }
 
 enum ColumnWidth: String, Codable, CaseIterable, Sendable {
-    case narrow, medium, wide
+    case narrow, medium, wide, extraWide, huge
 
     var points: CGFloat {
         switch self {
         case .narrow: return 300
         case .medium: return 360
         case .wide: return 460
+        case .extraWide: return 620
+        case .huge: return 820
         }
     }
 
@@ -112,6 +128,8 @@ enum ColumnWidth: String, Codable, CaseIterable, Sendable {
         case .narrow: return tr("Schmal", "Narrow")
         case .medium: return tr("Mittel", "Medium")
         case .wide: return tr("Breit", "Wide")
+        case .extraWide: return tr("Sehr breit", "Extra Wide")
+        case .huge: return tr("Extra breit", "Widest")
         }
     }
 }
@@ -124,6 +142,8 @@ struct Column: Codable, Identifiable, Hashable, Sendable {
     var width: ColumnWidth = .medium
     /// Optional so decks saved before filters existed still load.
     var filter: ColumnFilter?
+    /// Saved filters that apply on top of the column's own one.
+    var presetIDs: [UUID]?
 }
 
 struct NotificationItem: Hashable, Sendable {

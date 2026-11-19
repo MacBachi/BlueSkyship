@@ -51,6 +51,7 @@ final class DeckStore {
     private static let decksKey = "deck.pages.v1"
     private static let activeDeckKey = "deck.activePage.v1"
     static let draftsKey = "deck.drafts.v1"
+    static let filterPresetsKey = "deck.filterPresets.v1"
     /// Seen by everyone on first launch, so the deck is useful before signing in.
     private static let discoverFeed = "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot"
 
@@ -76,6 +77,12 @@ final class DeckStore {
 
     var favorites: [Favorite] = []
     var drafts: [SavedDraft] = []
+    /// Filters with a name, for using the same rules in several columns.
+    var filterPresets: [FilterPreset] = []
+    /// Set while Feedly is connected. The token itself stays in the Keychain.
+    var feedly: Feedly.Connection?
+    /// Replaced in tests, so feeds come from a simulated server.
+    var feedTransport: URLSession = .shared
     var scheduledPosts: [ScheduledPost] = []
     var unreadCounts: [String: Int] = [:]
     /// Deleted posts and muted or blocked people vanish everywhere at once, including threads and profiles.
@@ -130,6 +137,11 @@ final class DeckStore {
            let stored = try? JSONDecoder().decode([SavedDraft].self, from: data) {
             drafts = stored
         }
+        if let data = defaults.data(forKey: Self.filterPresetsKey),
+           let stored = try? JSONDecoder().decode([FilterPreset].self, from: data) {
+            filterPresets = stored
+        }
+        feedly = FeedlyKeychain.load()
         if let data = defaults.data(forKey: Self.decksKey),
            let stored = try? JSONDecoder().decode([DeckPage].self, from: data), !stored.isEmpty {
             decks = stored
@@ -154,6 +166,7 @@ final class DeckStore {
         if let feed = feeds[column.id] { return feed }
         let feed = ColumnFeed()
         feed.filter = column.filter ?? ColumnFilter()
+        feed.presets = presetFilters(for: column)
         feed.moderation = moderationPrefs(for: column.accountDID)
         feed.isOwnPost = { [weak self] in self?.isOwnPost($0) ?? false }
         feeds[column.id] = feed
@@ -168,6 +181,7 @@ final class DeckStore {
     }
 
     func readClient(for column: Column) -> (any SocialReader)? {
+        if column.kind.isFeedSource { return feedReader }
         if let did = column.accountDID {
             return accounts.reader(for: did)
         }
@@ -235,8 +249,8 @@ final class DeckStore {
             return accounts.firstMastodon?.did
         case .feed, .list:
             return accounts.firstBluesky?.did
-        case .search:
-            // Searches mix every network with an account.
+        case .search, .rss, .feedly:
+            // Searches mix every network with an account. Feeds need no account.
             return nil
         default:
             return accounts.accounts.first?.did
@@ -310,7 +324,7 @@ final class DeckStore {
 
     func addFavorite(
         kind: ColumnKind, title: String, avatar: String? = nil, accountDID: String? = nil,
-        filter: ColumnFilter? = nil, width: ColumnWidth? = nil
+        filter: ColumnFilter? = nil, width: ColumnWidth? = nil, presetIDs: [UUID]? = nil
     ) {
         guard !isFavorite(kind) else { return }
         favorites.append(Favorite(
@@ -321,7 +335,8 @@ final class DeckStore {
             accountDID: Favorite.isTiedToAccount(kind) || (accounts.network(of: accountDID) == .mastodon && !kind.isSearch)
                 ? accountDID : nil,
             filter: filter,
-            width: width
+            width: width,
+            presetIDs: presetIDs
         ))
         saveFavorites()
     }
@@ -352,7 +367,7 @@ final class DeckStore {
     func moveColumnToFavorites(_ column: Column) {
         addFavorite(
             kind: column.kind, title: column.kind.title, accountDID: column.accountDID,
-            filter: column.filter, width: column.width
+            filter: column.filter, width: column.width, presetIDs: column.presetIDs
         )
         removeColumn(column.id)
         isShowingFavorites = true
@@ -483,7 +498,7 @@ final class DeckStore {
         } else {
             addColumn(Column(
                 kind: favorite.kind, accountDID: accountDID,
-                width: favorite.width ?? settings.defaultWidth, filter: favorite.filter
+                width: favorite.width ?? settings.defaultWidth, filter: favorite.filter, presetIDs: favorite.presetIDs
             ))
         }
     }

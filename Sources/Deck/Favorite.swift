@@ -24,6 +24,7 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
     /// From a column moved here, so that pinning it again brings back the same column.
     var filter: ColumnFilter?
     var width: ColumnWidth?
+    var presetIDs: [UUID]?
 
     var avatarURL: URL? { avatar.flatMap(URL.init(string:)) }
 
@@ -44,7 +45,7 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
         case .author, .profileTab: return .people
         case .search: return .searches
         case .feed, .list: return .feeds
-        case .localTimeline, .federatedTimeline: return .feeds
+        case .localTimeline, .federatedTimeline, .rss, .feedly: return .feeds
         case .home, .notifications, .mentions, .ownPosts, .likes, .bookmarks, .messages: return .other
         }
     }
@@ -60,7 +61,7 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
         switch kind {
         case .home, .notifications, .mentions, .ownPosts, .likes, .bookmarks, .messages,
              .localTimeline, .federatedTimeline: return true
-        case .author, .profileTab, .feed, .list, .search: return false
+        case .author, .profileTab, .feed, .list, .search, .rss, .feedly: return false
         }
     }
 }

@@ -7,6 +7,7 @@ enum ColumnRoute: Hashable {
     case reactions(PostView)
     case conversation(Conversation, accountDID: String)
     case people(actor: String, list: PeopleList)
+    case article(PostView)
 }
 
 /// Lets any row deep inside a column open a profile within that column.

@@ -362,15 +362,19 @@ struct PostView: Decodable, Hashable, Sendable, Identifiable {
     var mastodon: MastodonPostInfo?
     /// The account that found this post in a column mixing several accounts. Acting on it goes through that account.
     var sourceAccountDID: String?
+    /// Set for articles read from an RSS, Atom or Feedly source. They can be read and shared, not answered.
+    var article: ArticleInfo?
 
     var id: String { uri }
     var ref: StrongRef { StrongRef(uri: uri, cid: cid) }
     var date: Date? { ATDate.parse(record.createdAt ?? indexedAt) }
     var isMastodon: Bool { mastodon != nil }
+    var isArticle: Bool { article != nil }
 
     /// The bsky.app URL for this post, for "open in browser" and "copy link".
     var webURL: URL? {
         if let mastodon { return mastodon.url.flatMap(LinkPolicy.webURL) }
+        if let article { return article.link.flatMap(LinkPolicy.webURL) }
         guard let rkey = uri.split(separator: "/").last else { return nil }
         return URL(string: "https://bsky.app/profile/\(author.handle)/post/\(rkey)")
     }
