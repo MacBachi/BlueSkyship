@@ -155,7 +155,7 @@ struct IOCHoverCard: View {
 
     private var icon: String {
         switch ioc.kind {
-        case .cve, .euvd: return "exclamationmark.shield"
+        case .cve, .euvd, .ghsa: return "exclamationmark.shield"
         case .ipv4, .ipv6: return "network"
         case .domain, .url: return "globe"
         case .email: return "envelope"

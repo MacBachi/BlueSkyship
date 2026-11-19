@@ -3,7 +3,7 @@ import Foundation
 /// Signs of an attack that security people pass around: addresses, hashes, vulnerability numbers.
 /// Everything here works on the text alone. Nothing is looked up until someone picks a service.
 enum IOCKind: String, CaseIterable, Sendable {
-    case url, email, ipv4, ipv6, domain, md5, sha1, sha256, sha512, cve, euvd
+    case url, email, ipv4, ipv6, domain, md5, sha1, sha256, sha512, cve, euvd, ghsa
 
     var label: String {
         switch self {
@@ -18,6 +18,7 @@ enum IOCKind: String, CaseIterable, Sendable {
         case .sha512: return tr("SHA-512-Hash", "SHA-512 hash")
         case .cve: return tr("Schwachstelle (CVE)", "Vulnerability (CVE)")
         case .euvd: return tr("Schwachstelle (EUVD)", "Vulnerability (EUVD)")
+        case .ghsa: return tr("Sicherheitshinweis (GHSA)", "Security advisory (GHSA)")
         }
     }
 
@@ -74,6 +75,8 @@ enum IOCDetector {
     )
     private static let hashPattern = regex(#"(?<![\w])(?:[0-9A-Fa-f]{128}|[0-9A-Fa-f]{64}|[0-9A-Fa-f]{40}|[0-9A-Fa-f]{32})(?![\w])"#)
     private static let cvePattern = regex(#"(?<![\w-])CVE-\d{4}-\d{4,7}(?![\w])"#, caseInsensitive: true)
+    /// GitHub writes these with a reduced alphabet that leaves out letters easily confused with digits.
+    private static let ghsaPattern = regex(#"(?<![\w-])GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}(?![\w-])"#, caseInsensitive: true)
     private static let euvdPattern = regex(#"(?<![\w-])EUVD-\d{4}-\d{1,7}(?![\w])"#, caseInsensitive: true)
     private static let defangMarks = regex(#"\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\)|\[:\]|\[@\]|\[at\]|\(at\)|hxxp|fxp"#, caseInsensitive: true)
 
@@ -157,6 +160,9 @@ enum IOCDetector {
         for match in euvdPattern.matches(in: text, range: whole) {
             add(.euvd, match.range, value: string.substring(with: match.range).uppercased())
         }
+        for match in ghsaPattern.matches(in: text, range: whole) {
+            add(.ghsa, match.range, value: normalizedGHSA(string.substring(with: match.range)))
+        }
         for match in hashPattern.matches(in: text, range: whole) {
             let value = string.substring(with: match.range)
             // A long number is not a hash, and neither is a run of one repeated sign.
@@ -208,6 +214,11 @@ enum IOCDetector {
         guard value.contains(where: \.isHexDigit), value.filter({ $0 == ":" }).count >= 2 else { return false }
         var address = in6_addr()
         return inet_pton(AF_INET6, value, &address) == 1
+    }
+
+    /// `GHSA-` in capitals, the rest in small letters, as GitHub writes it.
+    static func normalizedGHSA(_ text: String) -> String {
+        "GHSA" + text.dropFirst(4).lowercased()
     }
 
     // MARK: Converting
@@ -279,6 +290,9 @@ enum IOCDetector {
         }
         if let match = euvdPattern.firstMatch(in: text, range: whole) {
             return IOC(kind: .euvd, value: (text as NSString).substring(with: match.range).uppercased(), range: NSRange(), wasDefanged: false)
+        }
+        if let match = ghsaPattern.firstMatch(in: text, range: whole) {
+            return IOC(kind: .ghsa, value: normalizedGHSA((text as NSString).substring(with: match.range)), range: NSRange(), wasDefanged: false)
         }
         if let match = hashPattern.firstMatch(in: text, range: whole) {
             let value = (text as NSString).substring(with: match.range).lowercased()
@@ -360,6 +374,12 @@ enum IOCLookup {
             ]
         case .euvd:
             list = [("EUVD", "https://euvd.enisa.europa.eu/vulnerability/\(encoded)")]
+        case .ghsa:
+            list = [
+                ("GitHub", "https://github.com/advisories/\(encoded)"),
+                ("OSV", "https://osv.dev/vulnerability/\(encoded)"),
+                ("EUVD", "https://euvd.enisa.europa.eu/search?text=\(query)"),
+            ]
         }
         return list.compactMap { name, address in URL(string: address).map { Service(name: name, url: $0) } }
     }

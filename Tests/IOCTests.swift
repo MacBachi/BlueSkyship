@@ -31,6 +31,17 @@ struct IOCTests {
         #expect(IOCDetector.subject(forLink: link)?.kind == .euvd)
     }
 
+    @Test func findsGHSAIdentifiersLikeGitHubWritesThem() {
+        let found = IOCDetector.find(in: "Fixed in GHSA-JFH8-C2JP-5V3Q, not GHSA-abcd-1234-zzzz.")
+        #expect(found.map(\.kind) == [.ghsa])
+        #expect(found.first?.value == "GHSA-jfh8-c2jp-5v3q")
+        let ioc = IOC(kind: .ghsa, value: "GHSA-jfh8-c2jp-5v3q", range: NSRange(), wasDefanged: false)
+        #expect(IOCLookup.services(for: ioc).map(\.name) == ["GitHub", "OSV", "EUVD"])
+        let link = URL(string: "https://github.com/advisories/GHSA-jfh8-c2jp-5v3q")!
+        #expect(IOCDetector.subject(forLink: link)?.kind == .ghsa)
+        #expect(IOCDetector.containsIOC("See GHSA-jfh8-c2jp-5v3q"))
+    }
+
     @Test func findsCVEsInAnyCase() {
         #expect(values("Patch for cve-2024-3094 and CVE-2021-44228.") == ["CVE-2024-3094", "CVE-2021-44228"])
     }
@@ -150,7 +161,7 @@ struct IOCIntelTests {
             nvd: URL(string: "\(base)/nvd")!, epss: URL(string: "\(base)/epss")!, ripe: URL(string: "\(base)/ripe/")!,
             internetDB: URL(string: "\(base)/idb/")!, greyNoise: URL(string: "\(base)/gn/")!, urlscan: URL(string: "\(base)/us/")!,
             circl: URL(string: "\(base)/circl/")!, virusTotal: URL(string: "\(base)/vt/")!, abuseIPDB: URL(string: "\(base)/abuse")!,
-            euvd: URL(string: "\(base)/euvd/")!
+            euvd: URL(string: "\(base)/euvd/")!, github: URL(string: "\(base)/gh/")!
         )
     }
 
@@ -297,6 +308,42 @@ struct IOCIntelTests {
         #expect(report.facts.contains { $0.value.contains("CVE-2021-44228") })
         #expect(report.links.map(\.name).contains("NVD"))
         #expect(!report.notes.contains { $0.contains("VirusTotal") })
+    }
+
+    @Test func ghsaCardShowsGitHubAdvisoryAndItsEUVDEntry() async {
+        StubProtocol.register(host: "ghsa.intel.test") { request in
+            let path = request.url!.path
+            if path.hasPrefix("/gh/GHSA-jfh8-c2jp-5v3q") {
+                return json(##"{"ghsa_id":"GHSA-jfh8-c2jp-5v3q","cve_id":"CVE-2021-44228","html_url":"https://github.com/advisories/GHSA-jfh8-c2jp-5v3q","summary":"Remote code injection in Log4j","description":"# Summary\n**Log4j** runs `JNDI` lookups.","severity":"critical","published_at":"2021-12-10T00:40:56Z","withdrawn_at":null,"vulnerabilities":[{"package":{"ecosystem":"maven","name":"org.apache.logging.log4j:log4j-core"},"vulnerable_version_range":">= 2.13.0, < 2.15.0","first_patched_version":"2.15.0"}],"cvss_severities":{"cvss_v3":{"score":10.0},"cvss_v4":{"score":0.0}},"epss":{"percentage":0.97,"percentile":0.999}}"##)
+            }
+            if path.hasPrefix("/euvd/search") { return json(#"{"items":["# + Self.euvdItem + "]}") }
+            return (404, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("ghsa.intel.test"))
+        let report = await intel.report(for: ioc(.ghsa, "GHSA-jfh8-c2jp-5v3q"))
+        #expect(report.title == "Remote code injection in Log4j")
+        #expect(report.summary == "Log4j runs JNDI lookups.")
+        #expect(report.facts.first { $0.label == "CVSS 3" }?.tone == .bad)
+        #expect(report.facts.first { $0.label == "EPSS" }?.tone == .bad)
+        #expect(report.facts.contains { $0.value.contains("log4j-core >= 2.13.0, < 2.15.0") && $0.value.contains("2.15.0") })
+        #expect(report.facts.first { $0.label == "EUVD" }?.value == "EUVD-2021-34768")
+        let names = report.links.map(\.name)
+        #expect(names.contains("GitHub"))
+        #expect(names.contains("NVD"))
+        #expect(names.contains("EUVD-2021-34768"))
+        #expect(names.filter { $0 == "NVD" }.count == 1)
+        // The advisory itself is not listed again as one of its own aliases.
+        #expect(!report.facts.contains { $0.label.contains("bekannt") && $0.value.contains("GHSA") })
+        #expect(!report.notes.contains { $0.contains("VirusTotal") })
+    }
+
+    @Test func cveCardLinksTheGitHubAdvisoriesItsEUVDEntryNames() async {
+        StubProtocol.register(host: "cve-ghsa.intel.test") { request in
+            request.url!.path.hasPrefix("/euvd/search") ? json(#"{"items":["# + Self.euvdItem + "]}") : (404, Data())
+        }
+        let intel = IOCIntel(transport: StubProtocol.session(), endpoints: endpoints("cve-ghsa.intel.test"))
+        let report = await intel.report(for: ioc(.cve, "CVE-2021-44228"))
+        #expect(report.links.contains { $0.url.absoluteString == "https://github.com/advisories/GHSA-jfh8-c2jp-5v3q" })
     }
 
     @Test func linksAreAboutTheCVEOrAddressTheyName() throws {
